@@ -4,27 +4,118 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// ----------------------------------------------------
+// INTEGRAZIONE SUPABASE (SERVER DATABASE)
+// ----------------------------------------------------
+let supabaseClient = null;
+let supabaseUrl = localStorage.getItem('supabase_url') || '';
+let supabaseKey = localStorage.getItem('supabase_key') || '';
+
+const cloudStatusDot = document.getElementById('cloudStatusDot');
+
+function initSupabase() {
+  if (supabaseUrl && supabaseKey && window.supabase) {
+    try {
+      supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+      if (cloudStatusDot) cloudStatusDot.classList.add('online');
+      fetchDataFromSupabase();
+    } catch (e) {
+      if (cloudStatusDot) cloudStatusDot.classList.remove('online');
+    }
+  } else {
+    if (cloudStatusDot) cloudStatusDot.classList.remove('online');
+  }
+}
+
+// Scarica i dati dal server e aggiorna la UI
+async function fetchDataFromSupabase() {
+  if (!supabaseClient) return;
+
+  try {
+    // 1. Categorie
+    const { data: catData, error: catErr } = await supabaseClient
+      .from('categories')
+      .select('name');
+
+    if (!catErr && catData && catData.length > 0) {
+      appData.categories = catData.map(c => c.name);
+    }
+
+    // 2. Elementi
+    const { data: itemData, error: itemErr } = await supabaseClient
+      .from('items')
+      .select('*');
+
+    if (!itemErr && itemData) {
+      appData.items = itemData.map(row => ({
+        id: Number(row.id),
+        title: row.title,
+        set: row.set_type,
+        category: row.category,
+        date: row.date,
+        number: row.number,
+        rating: row.rating,
+        unplayed: Boolean(row.unplayed),
+        purchased: Boolean(row.purchased),
+        missingGapNotice: row.missing_gap_notice,
+        readingChapter: row.reading_chapter || '',
+        privateComment: row.private_comment || ''
+      }));
+    }
+
+    saveData();
+    updateCategoryDropdown();
+    renderList();
+  } catch (err) {}
+}
+
+// Sincronizza una singola riga su Supabase (Upsert)
+async function syncItemToSupabase(item) {
+  if (!supabaseClient) return;
+
+  try {
+    await supabaseClient.from('items').upsert({
+      id: item.id,
+      title: item.title,
+      set_type: item.set,
+      category: item.category || 'Generale',
+      date: item.date || null,
+      number: item.number || null,
+      rating: item.rating !== undefined ? item.rating : null,
+      unplayed: Boolean(item.unplayed),
+      purchased: Boolean(item.purchased),
+      missing_gap_notice: item.missingGapNotice || null,
+      reading_chapter: item.readingChapter || null,
+      private_comment: item.privateComment || null
+    });
+  } catch (err) {}
+}
+
+// Rimuove una riga da Supabase
+async function deleteItemFromSupabase(id) {
+  if (!supabaseClient) return;
+
+  try {
+    await supabaseClient.from('items').delete().eq('id', id);
+  } catch (err) {}
+}
+
+// Sincronizza le categorie su Supabase
+async function syncCategoriesToSupabase() {
+  if (!supabaseClient) return;
+
+  try {
+    const payload = appData.categories.map(c => ({ id: c, name: c }));
+    await supabaseClient.from('categories').upsert(payload);
+  } catch (err) {}
+}
+
+// ----------------------------------------------------
+// STATO APPLICAZIONE LOCALE (INIZIALIZZAZIONE VUOTA)
+// ----------------------------------------------------
 const DEFAULT_DATA = {
   categories: ['Generale', 'Manga', 'Comics', 'Libri', 'Videogiochi'],
-  items: [
-    { id: 1, title: 'Rick and Morty deluxe', set: 'Acquisti', category: 'Generale', date: null, number: '1', rating: null, unplayed: false, purchased: false },
-    { id: 2, title: 'Treehouse of horror Simpson', set: 'Acquisti', category: 'Generale', date: null, number: '1', rating: null, unplayed: false, purchased: false },
-    { id: 3, title: 'Naruto color', set: 'Acquisti', category: 'Generale', date: '2026-09-10', number: '11', rating: null, unplayed: false, purchased: true },
-    { id: 4, title: 'Demon slayer', set: 'Acquisti', category: 'Generale', date: '2026-09-15', number: '1', rating: null, unplayed: false, purchased: true },
-    { id: 5, title: 'Naruto color', set: 'Acquisti', category: 'Generale', date: '2026-09-17', number: '12', rating: null, unplayed: false, purchased: false },
-    { id: 6, title: 'Naruto color', set: 'Acquisti', category: 'Generale', date: '2026-09-24', number: '13', rating: null, unplayed: false, purchased: false },
-    { id: 7, title: 'Naruto color', set: 'Acquisti', category: 'Generale', date: '2026-10-01', number: '14', rating: null, unplayed: false, purchased: false },
-    { id: 8, title: 'Jjk mod1 +variant', set: 'Acquisti', category: 'Generale', date: '2026-10-01', number: '30', rating: null, unplayed: false, purchased: false },
-    { id: 9, title: 'Pineapple army cof', set: 'Acquisti', category: 'Generale', date: '2026-10-02', number: '1', rating: null, unplayed: false, purchased: false },
-    { id: 10, title: 'OP + limited', set: 'Acquisti', category: 'Generale', date: '2026-10-06', number: '114', rating: null, unplayed: false, purchased: false },
-    { id: 11, title: 'Naruto color', set: 'Acquisti', category: 'Generale', date: '2026-10-08', number: '15', rating: null, unplayed: false, purchased: false },
-    { id: 12, title: 'Gachiakuta', set: 'Acquisti', category: 'Generale', date: '2026-10-13', number: '17', rating: null, unplayed: false, purchased: false },
-    { id: 16, title: 'Naruto color', set: 'Posseduti', category: 'Generale', date: null, number: '10', rating: null, unplayed: false, purchased: false, readingChapter: 'Cap. 95', privateComment: 'Rilettura saga esami Chunin.' },
-    { id: 17, title: 'Demon slayer', set: 'Posseduti', category: 'Generale', date: null, number: '1', rating: null, unplayed: false, purchased: false, readingChapter: '', privateComment: '' },
-    { id: 13, title: 'Watchmen', set: 'Voti', category: 'Comics', date: null, number: null, rating: 98, unplayed: false, purchased: false },
-    { id: 14, title: 'Berserk Deluxe 1', set: 'Voti', category: 'Manga', date: null, number: null, rating: 92, unplayed: false, purchased: false },
-    { id: 15, title: 'Elden Ring', set: 'Voti', category: 'Videogiochi', date: null, number: null, rating: null, unplayed: true, purchased: false }
-  ]
+  items: [] // Nessun volume predefinito: parte completamente vuoto
 };
 
 let appData = JSON.parse(localStorage.getItem('collection_data')) || JSON.parse(JSON.stringify(DEFAULT_DATA));
@@ -75,19 +166,16 @@ const timeFilterRow = document.getElementById('timeFilterRow');
 const toggleSortBtn = document.getElementById('toggleSortBtn');
 const sortIndicatorText = document.getElementById('sortIndicatorText');
 
-// Ricerca
 const searchBarWrap = document.getElementById('searchBarWrap');
 const seriesSearchInput = document.getElementById('seriesSearchInput');
 const clearSearchBtn = document.getElementById('clearSearchBtn');
 
-// Sezione Acquistati
 const purchasedSection = document.getElementById('purchasedSection');
 const purchasedList = document.getElementById('purchasedList');
 const togglePurchasedBtn = document.getElementById('togglePurchasedBtn');
 const purchasedCount = document.getElementById('purchasedCount');
 const chevronIcon = document.getElementById('chevronIcon');
 
-// Toast
 const undoToast = document.getElementById('undoToast');
 const undoToastMsg = document.getElementById('undoToastMsg');
 const undoBtn = document.getElementById('undoBtn');
@@ -116,7 +204,7 @@ const newCategoryGroup = document.getElementById('newCategoryGroup');
 const newCategoryInput = document.getElementById('newCategoryInput');
 const existingTitlesList = document.getElementById('existingTitlesList');
 
-// Modale Panoramica Dettagliata (Posseduti)
+// Modale Panoramica Posseduti
 const overviewModalBackdrop = document.getElementById('overviewModalBackdrop');
 const closeOverviewBtn = document.getElementById('closeOverviewBtn');
 const overviewCategoryTag = document.getElementById('overviewCategoryTag');
@@ -137,16 +225,24 @@ const settingsTitle = document.getElementById('settingsTitle');
 const settingsBackBtn = document.getElementById('settingsBackBtn');
 
 const settingsMainView = document.getElementById('settingsMainView');
+const settingsCloudView = document.getElementById('settingsCloudView');
 const settingsCategoriesView = document.getElementById('settingsCategoriesView');
 const settingsExportView = document.getElementById('settingsExportView');
 const settingsImportView = document.getElementById('settingsImportView');
 const settingsResetView = document.getElementById('settingsResetView');
 
+const goToCloudBtn = document.getElementById('goToCloudBtn');
 const goToCategoriesBtn = document.getElementById('goToCategoriesBtn');
 const goToExportBtn = document.getElementById('goToExportBtn');
 const goToImportBtn = document.getElementById('goToImportBtn');
 const goToResetBtn = document.getElementById('goToResetBtn');
 const notificationsToggleCheckbox = document.getElementById('notificationsToggleCheckbox');
+
+// Campi Cloud Supabase
+const supabaseUrlInput = document.getElementById('supabaseUrlInput');
+const supabaseKeyInput = document.getElementById('supabaseKeyInput');
+const saveCloudSettingsBtn = document.getElementById('saveCloudSettingsBtn');
+const disconnectCloudBtn = document.getElementById('disconnectCloudBtn');
 
 // CRUD Categorie
 const manageCatList = document.getElementById('manageCatList');
@@ -485,7 +581,7 @@ function renderStandardLayout(items) {
   });
 }
 
-// SINCRONIZZAZIONE AL CHECK (AGGIUNTA A POSSEDUTI)
+// Sincronizzazione automatica al check
 function syncPurchasedWithPosseduti(purchasedItem) {
   const purchasedNum = parseInt(purchasedItem.number, 10);
   const titleClean = purchasedItem.title.trim().toLowerCase();
@@ -495,8 +591,7 @@ function syncPurchasedWithPosseduti(purchasedItem) {
   );
 
   if (!existingPosseduto) {
-    // Non esiste: crealo in Posseduti con il numero comprato
-    appData.items.unshift({
+    const newItem = {
       id: Date.now() + Math.floor(Math.random() * 500),
       title: purchasedItem.title,
       set: 'Posseduti',
@@ -506,11 +601,13 @@ function syncPurchasedWithPosseduti(purchasedItem) {
       rating: null,
       unplayed: false,
       purchased: false,
-      autoGeneratedFromPurchase: true, // Flag per sapere se è nato da un check
+      autoGeneratedFromPurchase: true,
       missingGapNotice: null,
       readingChapter: '',
       privateComment: ''
-    });
+    };
+    appData.items.unshift(newItem);
+    syncItemToSupabase(newItem);
 
     showToastNotice(`"${purchasedItem.title}" aggiunto in Posseduti (Vol. #${purchasedItem.number || '1'})`);
   } else {
@@ -519,11 +616,13 @@ function syncPurchasedWithPosseduti(purchasedItem) {
     if (isNaN(purchasedNum) || isNaN(currentOwnedNum)) {
       if (purchasedItem.number && existingPosseduto.number !== purchasedItem.number) {
         existingPosseduto.number = purchasedItem.number;
+        syncItemToSupabase(existingPosseduto);
         showToastNotice(`Aggiornato ${existingPosseduto.title} a #${purchasedItem.number}`);
       }
     } else if (purchasedNum === currentOwnedNum + 1) {
       existingPosseduto.number = String(purchasedNum);
       existingPosseduto.missingGapNotice = null;
+      syncItemToSupabase(existingPosseduto);
       showToastNotice(`Posseduti aggiornato: ${existingPosseduto.title} ora al Vol. #${purchasedNum}`);
     } else if (purchasedNum > currentOwnedNum + 1) {
       const startMissing = currentOwnedNum + 1;
@@ -531,6 +630,7 @@ function syncPurchasedWithPosseduti(purchasedItem) {
       const missingRange = (startMissing === endMissing) ? `#${startMissing}` : `#${startMissing} - #${endMissing}`;
       
       existingPosseduto.missingGapNotice = `Mancano vol. ${missingRange}`;
+      syncItemToSupabase(existingPosseduto);
       showToastNotice(`⚠️ Attenzione: per "${existingPosseduto.title}" mancano i volumi ${missingRange}!`);
     }
   }
@@ -538,7 +638,7 @@ function syncPurchasedWithPosseduti(purchasedItem) {
   saveData();
 }
 
-// ROLLBACK AL DESELECT DEL CHECK: TOGLIE O SCALA DA POSSEDUTI SE SEGNATO PER ERRORE
+// Rollback se tolto il check per errore
 function rollbackPurchasedFromPosseduti(uncheckItem) {
   const uncheckNum = parseInt(uncheckItem.number, 10);
   const titleClean = uncheckItem.title.trim().toLowerCase();
@@ -551,31 +651,32 @@ function rollbackPurchasedFromPosseduti(uncheckItem) {
 
   const currentOwnedNum = parseInt(existingPosseduto.number, 10);
 
-  // Se l'elemento era stato creato unicamente da questo check o coincide esattamente:
   if (existingPosseduto.autoGeneratedFromPurchase && (existingPosseduto.number === uncheckItem.number)) {
     appData.items = appData.items.filter(i => i.id !== existingPosseduto.id);
+    deleteItemFromSupabase(existingPosseduto.id);
     showToastNotice(`"${uncheckItem.title}" rimosso da Posseduti (errore annullato)`);
   } else if (!isNaN(uncheckNum) && !isNaN(currentOwnedNum) && currentOwnedNum === uncheckNum) {
-    // Se era avanzato a questo numero, scala di 1 indietro
     const previousNum = currentOwnedNum - 1;
     if (previousNum > 0) {
       existingPosseduto.number = String(previousNum);
       existingPosseduto.missingGapNotice = null;
+      syncItemToSupabase(existingPosseduto);
       showToastNotice(`Posseduti scalato: ${existingPosseduto.title} tornato al Vol. #${previousNum}`);
     } else {
       appData.items = appData.items.filter(i => i.id !== existingPosseduto.id);
+      deleteItemFromSupabase(existingPosseduto.id);
       showToastNotice(`"${uncheckItem.title}" rimosso da Posseduti`);
     }
   } else if (existingPosseduto.missingGapNotice) {
-    // Se c'era un gap basato su questo numero non posseduto, ripulisce l'avviso
     existingPosseduto.missingGapNotice = null;
+    syncItemToSupabase(existingPosseduto);
     showToastNotice(`Avviso volumi mancanti rimosso per "${existingPosseduto.title}"`);
   }
 
   saveData();
 }
 
-// NOTIFICHE NATIVE DI USCITA (PWA WEB NOTIFICATIONS)
+// Notifiche Native di Uscita
 function checkAndTriggerTodayNotifications() {
   if (!notificationsEnabled) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -583,7 +684,6 @@ function checkAndTriggerTodayNotifications() {
   const todayStr = getTodayString();
   const lastNotifiedDate = localStorage.getItem('last_notified_date');
 
-  // Notifica al massimo una volta al giorno
   if (lastNotifiedDate === todayStr) return;
 
   const todayReleases = appData.items.filter(
@@ -607,7 +707,7 @@ function checkAndTriggerTodayNotifications() {
   }
 }
 
-// Toggle Notifiche nel Menu Impostazioni
+// Toggle Notifiche
 notificationsToggleCheckbox.checked = notificationsEnabled;
 notificationsToggleCheckbox.addEventListener('change', async (e) => {
   if (e.target.checked) {
@@ -621,13 +721,13 @@ notificationsToggleCheckbox.addEventListener('change', async (e) => {
     if (permission === 'granted') {
       notificationsEnabled = true;
       localStorage.setItem('pref_notifications', 'true');
-      showToastNotice('Notifiche native di uscita attivate!');
+      showToastNotice('Notifiche native attivate!');
       checkAndTriggerTodayNotifications();
     } else {
       notificationsEnabled = false;
       localStorage.setItem('pref_notifications', 'false');
       e.target.checked = false;
-      alert('Permesso per le notifiche negato nelle impostazioni del browser.');
+      alert('Permesso per le notifiche negato nelle impostazioni.');
     }
   } else {
     notificationsEnabled = false;
@@ -758,11 +858,11 @@ function createItemCard(item, isCompact) {
       const willBePurchased = !item.purchased;
       item.purchased = willBePurchased;
       saveData();
+      syncItemToSupabase(item);
 
       if (willBePurchased) {
         syncPurchasedWithPosseduti(item);
       } else {
-        // Se toglie la spunta perché ha sbagliato: toglie o scala da Posseduti
         rollbackPurchasedFromPosseduti(item);
       }
 
@@ -831,6 +931,7 @@ saveOverviewDetailsBtn.addEventListener('click', () => {
     item.readingChapter = overviewReadingProgressInput.value.trim();
     item.privateComment = overviewCommentInput.value.trim();
     saveData();
+    syncItemToSupabase(item);
     closeOverviewModal();
     showToastNotice(`Panoramica di "${item.title}" salvata!`);
   }
@@ -849,6 +950,7 @@ function deleteItemWithUndo(item) {
   deletedItemBuffer = { ...item };
   appData.items = appData.items.filter(i => i.id !== item.id);
   saveData();
+  deleteItemFromSupabase(item.id);
   renderList();
 
   undoBtn.style.display = 'inline-block';
@@ -866,6 +968,7 @@ undoBtn.addEventListener('click', () => {
   if (deletedItemBuffer) {
     appData.items.unshift(deletedItemBuffer);
     saveData();
+    syncItemToSupabase(deletedItemBuffer);
     renderList();
     deletedItemBuffer = null;
     undoToast.classList.remove('show');
@@ -877,7 +980,7 @@ function createNextVolume(item) {
   const currentNum = parseInt(item.number, 10);
   const nextNum = isNaN(currentNum) ? '' : String(currentNum + 1);
 
-  appData.items.unshift({
+  const newItem = {
     id: Date.now(),
     title: item.title,
     set: 'Acquisti',
@@ -887,9 +990,11 @@ function createNextVolume(item) {
     rating: null,
     unplayed: false,
     purchased: false
-  });
+  };
 
+  appData.items.unshift(newItem);
   saveData();
+  syncItemToSupabase(newItem);
   renderList();
 }
 
@@ -897,12 +1002,6 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
-}
-
-function deleteItem(id) {
-  appData.items = appData.items.filter(item => item.id !== id);
-  saveData();
-  renderList();
 }
 
 function populateFormCategories() {
@@ -1050,6 +1149,7 @@ itemForm.addEventListener('submit', (e) => {
     category = typedCat;
     if (!appData.categories.includes(category)) {
       appData.categories.push(category);
+      syncCategoriesToSupabase();
     }
   }
 
@@ -1072,6 +1172,8 @@ itemForm.addEventListener('submit', (e) => {
     }
   }
 
+  let finalItem = null;
+
   if (idToEdit) {
     const existing = appData.items.find(i => i.id == idToEdit);
     if (existing) {
@@ -1082,9 +1184,10 @@ itemForm.addEventListener('submit', (e) => {
       existing.number = number;
       existing.rating = rating;
       existing.unplayed = unplayed;
+      finalItem = existing;
     }
   } else {
-    appData.items.unshift({
+    finalItem = {
       id: Date.now(),
       title,
       set,
@@ -1097,10 +1200,12 @@ itemForm.addEventListener('submit', (e) => {
       missingGapNotice: null,
       readingChapter: '',
       privateComment: ''
-    });
+    };
+    appData.items.unshift(finalItem);
   }
 
   saveData();
+  if (finalItem) syncItemToSupabase(finalItem);
   closeModal();
   updateCategoryDropdown();
 
@@ -1144,6 +1249,7 @@ window.addEventListener('keydown', (e) => {
 // Sotto-viste Impostazioni
 function showSettingsView(viewName) {
   settingsMainView.style.display = (viewName === 'main') ? 'block' : 'none';
+  settingsCloudView.style.display = (viewName === 'cloud') ? 'block' : 'none';
   settingsCategoriesView.style.display = (viewName === 'categories') ? 'block' : 'none';
   settingsExportView.style.display = (viewName === 'export') ? 'block' : 'none';
   settingsImportView.style.display = (viewName === 'import') ? 'block' : 'none';
@@ -1152,6 +1258,11 @@ function showSettingsView(viewName) {
   if (viewName === 'main') {
     settingsTitle.textContent = 'Impostazioni';
     settingsBackBtn.style.display = 'none';
+  } else if (viewName === 'cloud') {
+    settingsTitle.textContent = 'Server Cloud';
+    settingsBackBtn.style.display = 'flex';
+    supabaseUrlInput.value = localStorage.getItem('supabase_url') || '';
+    supabaseKeyInput.value = localStorage.getItem('supabase_key') || '';
   } else if (viewName === 'categories') {
     settingsTitle.textContent = 'Gestione Categorie';
     settingsBackBtn.style.display = 'flex';
@@ -1181,6 +1292,7 @@ openSettingsBtn.addEventListener('click', openSettingsModal);
 closeSettingsBtn.addEventListener('click', closeSettingsModal);
 settingsBackBtn.addEventListener('click', () => showSettingsView('main'));
 
+goToCloudBtn.addEventListener('click', () => showSettingsView('cloud'));
 goToCategoriesBtn.addEventListener('click', () => showSettingsView('categories'));
 goToExportBtn.addEventListener('click', () => showSettingsView('export'));
 goToImportBtn.addEventListener('click', () => showSettingsView('import'));
@@ -1188,6 +1300,39 @@ goToResetBtn.addEventListener('click', () => showSettingsView('reset'));
 
 settingsModalBackdrop.addEventListener('click', (e) => {
   if (e.target === settingsModalBackdrop) closeSettingsModal();
+});
+
+// Configurazione Cloud Supabase
+saveCloudSettingsBtn.addEventListener('click', () => {
+  const url = supabaseUrlInput.value.trim();
+  const key = supabaseKeyInput.value.trim();
+
+  if (!url || !key) {
+    alert('Inserisci sia l\'URL che la Anon Key.');
+    return;
+  }
+
+  supabaseUrl = url;
+  supabaseKey = key;
+  localStorage.setItem('supabase_url', url);
+  localStorage.setItem('supabase_key', key);
+
+  initSupabase();
+  showToastNotice('Server Supabase collegato con successo!');
+  showSettingsView('main');
+});
+
+disconnectCloudBtn.addEventListener('click', () => {
+  localStorage.removeItem('supabase_url');
+  localStorage.removeItem('supabase_key');
+  supabaseUrl = '';
+  supabaseKey = '';
+  supabaseClient = null;
+  supabaseUrlInput.value = '';
+  supabaseKeyInput.value = '';
+  if (cloudStatusDot) cloudStatusDot.classList.remove('online');
+  showToastNotice('Server Supabase scollegato.');
+  showSettingsView('main');
 });
 
 // CRUD Categorie
@@ -1226,11 +1371,15 @@ function renderManageCategoriesList() {
         const idx = appData.categories.indexOf(cat);
         if (idx !== -1) appData.categories[idx] = cleanName;
         appData.items.forEach(i => {
-          if (i.category === cat) i.category = cleanName;
+          if (i.category === cat) {
+            i.category = cleanName;
+            syncItemToSupabase(i);
+          }
         });
         if (activeCategory === cat) activeCategory = cleanName;
 
         saveData();
+        syncCategoriesToSupabase();
         updateCategoryDropdown();
         renderManageCategoriesList();
         renderList();
@@ -1243,11 +1392,15 @@ function renderManageCategoriesList() {
         if (confirm(`Eliminare la categoria "${cat}"? I volumi associati torneranno a "Generale".`)) {
           appData.categories = appData.categories.filter(c => c !== cat);
           appData.items.forEach(i => {
-            if (i.category === cat) i.category = 'Generale';
+            if (i.category === cat) {
+              i.category = 'Generale';
+              syncItemToSupabase(i);
+            }
           });
           if (activeCategory === cat) activeCategory = 'Generale';
 
           saveData();
+          syncCategoriesToSupabase();
           updateCategoryDropdown();
           renderManageCategoriesList();
           renderList();
@@ -1271,6 +1424,7 @@ addCatManageBtn.addEventListener('click', () => {
   appData.categories.push(newName);
   newCatManageInput.value = '';
   saveData();
+  syncCategoriesToSupabase();
   updateCategoryDropdown();
   renderManageCategoriesList();
   renderList();
@@ -1306,7 +1460,7 @@ confirmExportBtn.addEventListener('click', () => {
     }));
 
   const exportPayload = {
-    appVersion: '3.4',
+    appVersion: '3.5',
     exportedAt: new Date().toISOString(),
     exportedBySet: selectedSets,
     categoriesList: appData.categories,
@@ -1355,6 +1509,7 @@ importJsonFileInput.addEventListener('change', (e) => {
             appData.categories.push(cat);
           }
         });
+        syncCategoriesToSupabase();
       }
 
       importedData.items.forEach(incoming => {
@@ -1379,7 +1534,7 @@ importJsonFileInput.addEventListener('change', (e) => {
             incomingRating = incomingRating * 20;
           }
 
-          appData.items.unshift({
+          const newItem = {
             id: incoming.id || Date.now() + Math.floor(Math.random() * 1000),
             title: incoming.title,
             set: target,
@@ -1392,7 +1547,10 @@ importJsonFileInput.addEventListener('change', (e) => {
             missingGapNotice: incoming.missingGapNotice || null,
             readingChapter: incoming.readingChapter || '',
             privateComment: incoming.privateComment || ''
-          });
+          };
+
+          appData.items.unshift(newItem);
+          syncItemToSupabase(newItem);
           importedCount++;
         }
       });
@@ -1412,15 +1570,22 @@ importJsonFileInput.addEventListener('change', (e) => {
   reader.readAsText(file);
 });
 
-// Reset di fabbrica
+// Ripristino di fabbrica
 cancelResetBtn.addEventListener('click', () => {
   showSettingsView('main');
 });
 
-confirmFactoryResetBtn.addEventListener('click', () => {
+confirmFactoryResetBtn.addEventListener('click', async () => {
   localStorage.clear();
   appData = JSON.parse(JSON.stringify(DEFAULT_DATA));
   saveData();
+
+  if (supabaseClient) {
+    try {
+      await supabaseClient.from('items').delete().neq('id', 0);
+      await supabaseClient.from('categories').delete().neq('id', '');
+    } catch (e) {}
+  }
 
   activeSet = 'Acquisti';
   activeCategory = 'Generale';
@@ -1430,7 +1595,7 @@ confirmFactoryResetBtn.addEventListener('click', () => {
 
   closeSettingsModal();
   initApp();
-  alert('Dati ripristinati allo stato iniziale.');
+  alert('Dati ripristinati allo stato iniziale (Collezione completamente vuota).');
 });
 
 function initApp() {
@@ -1449,7 +1614,7 @@ function initApp() {
   updateCategoryDropdown();
   renderList();
 
-  // Controlla se oggi ci sono uscite e invia notifica se abilitata
+  initSupabase();
   checkAndTriggerTodayNotifications();
 }
 
