@@ -1,38 +1,227 @@
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').catch((err) => {
+      console.warn('Service Worker non registrato:', err);
+    });
   });
 }
 
 // ----------------------------------------------------
-// INTEGRAZIONE SUPABASE (SERVER DATABASE)
+// CONFIGURAZIONE INTERNA SUPABASE
 // ----------------------------------------------------
-let supabaseClient = null;
-let supabaseUrl = localStorage.getItem('supabase_url') || '';
-let supabaseKey = localStorage.getItem('supabase_key') || '';
+const SUPABASE_CONFIG = {
+  url: 'https://aiagtwiqeecaxhaaqzmx.supabase.co',
+  anonKey: 'sb_publishable_PodV98vtRyuW329msfQKrA_goxv6C_c' // La chiave anon pubblica di Supabase
+};
 
+let supabaseClient = null;
+let realtimeChannel = null;
+let currentUser = null;
+
+// Elementi Auth
+const authOverlay = document.getElementById('authOverlay');
+const appContent = document.getElementById('appContent');
+const loginForm = document.getElementById('loginForm');
+const loginEmail = document.getElementById('loginEmail');
+const loginPassword = document.getElementById('loginPassword');
+const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+const authErrorMsg = document.getElementById('authErrorMsg');
+
+const accountUserEmail = document.getElementById('accountUserEmail');
+const currentAccountDisplay = document.getElementById('currentAccountDisplay');
+const logoutBtn = document.getElementById('logoutBtn');
 const cloudStatusDot = document.getElementById('cloudStatusDot');
 
-function initSupabase() {
-  if (supabaseUrl && supabaseKey && window.supabase) {
-    try {
-      supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
-      if (cloudStatusDot) cloudStatusDot.classList.add('online');
-      fetchDataFromSupabase();
-    } catch (e) {
-      if (cloudStatusDot) cloudStatusDot.classList.remove('online');
-    }
+function setCloudStatus(status) {
+  if (!cloudStatusDot) return;
+  cloudStatusDot.classList.remove('online', 'error');
+  if (status === 'online') {
+    cloudStatusDot.classList.add('online');
+    cloudStatusDot.title = 'Sincronizzazione Cloud Realtime attiva';
+  } else if (status === 'error') {
+    cloudStatusDot.classList.add('error');
+    cloudStatusDot.title = 'Errore di connessione a Supabase';
   } else {
-    if (cloudStatusDot) cloudStatusDot.classList.remove('online');
+    cloudStatusDot.title = 'In attesa di autenticazione';
   }
 }
 
-// Scarica i dati dal server e aggiorna la UI
-async function fetchDataFromSupabase() {
-  if (!supabaseClient) return;
+// Generatore ID sicuro
+function generateUniqueId() {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    return Math.floor(Date.now() / 1000) * 1000000 + (array[0] % 1000000);
+  }
+  return Date.now() + Math.floor(Math.random() * 10000);
+}
+
+// ----------------------------------------------------
+// INIZIALIZZAZIONE & GESTIONE SESSIONE (AUTH)
+// ----------------------------------------------------
+async function initAuthAndApp() {
+  if (!window.supabase) {
+    alert('Libreria Supabase non caricata. Verifica la connessione a internet.');
+    return;
+  }
+
+  supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+
+  // Ascolta i cambiamenti di autenticazione (Login, Logout, Token Refresh)
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) {
+      handleAuthenticatedState(session.user);
+    } else {
+      handleUnauthenticatedState();
+    }
+  });
+
+  // Controlla se esiste già una sessione attiva
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session && session.user) {
+    handleAuthenticatedState(session.user);
+  } else {
+    handleUnauthenticatedState();
+  }
+}
+
+function handleAuthenticatedState(user) {
+  currentUser = user;
+  authOverlay.style.display = 'none';
+  appContent.style.display = 'flex';
+  openModalBtn.style.display = 'flex';
+
+  if (accountUserEmail) accountUserEmail.textContent = user.email;
+  if (currentAccountDisplay) currentAccountDisplay.textContent = user.email;
+
+  fetchDataFromSupabase();
+  setupRealtimeSubscriptions();
+  checkAndTriggerTodayNotifications();
+}
+
+function handleUnauthenticatedState() {
+  currentUser = null;
+  authOverlay.style.display = 'flex';
+  appContent.style.display = 'none';
+  openModalBtn.style.display = 'none';
+  setCloudStatus('offline');
+
+  if (realtimeChannel && supabaseClient) {
+    supabaseClient.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+}
+
+// Invio Login Form
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = loginEmail.value.trim();
+  const password = loginPassword.value;
+
+  loginSubmitBtn.disabled = true;
+  loginSubmitBtn.textContent = 'Verifica in corso...';
+  authErrorMsg.style.display = 'none';
 
   try {
-    // 1. Categorie
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) throw error;
+
+    loginForm.reset();
+  } catch (err) {
+    authErrorMsg.textContent = err.message || 'Credenziali non corrette o utente non trovato.';
+    authErrorMsg.style.display = 'block';
+  } finally {
+    loginSubmitBtn.disabled = false;
+    loginSubmitBtn.textContent = 'Accedi';
+  }
+});
+
+// Logout
+logoutBtn.addEventListener('click', async () => {
+  if (confirm('Vuoi davvero disconnettere questo account?')) {
+    closeSettingsModal();
+    await supabaseClient.auth.signOut();
+  }
+});
+
+// ----------------------------------------------------
+// REALTIME & DATI SUPABASE
+// ----------------------------------------------------
+function setupRealtimeSubscriptions() {
+  if (!supabaseClient || !currentUser) return;
+
+  if (realtimeChannel) {
+    supabaseClient.removeChannel(realtimeChannel);
+  }
+
+  realtimeChannel = supabaseClient
+    .channel('public:items')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'items' },
+      (payload) => {
+        handleRealtimeEvent(payload);
+      }
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        setCloudStatus('online');
+      }
+    });
+}
+
+function handleRealtimeEvent(payload) {
+  const { eventType, new: newRow, old: oldRow } = payload;
+
+  if (eventType === 'INSERT') {
+    const exists = appData.items.some(i => i.id === Number(newRow.id));
+    if (!exists) {
+      appData.items.unshift(formatRowToItem(newRow));
+      saveData();
+      renderList();
+    }
+  } else if (eventType === 'UPDATE') {
+    const idx = appData.items.findIndex(i => i.id === Number(newRow.id));
+    if (idx !== -1) {
+      appData.items[idx] = formatRowToItem(newRow);
+      saveData();
+      renderList();
+    }
+  } else if (eventType === 'DELETE') {
+    if (oldRow && oldRow.id) {
+      appData.items = appData.items.filter(i => i.id !== Number(oldRow.id));
+      saveData();
+      renderList();
+    }
+  }
+}
+
+function formatRowToItem(row) {
+  return {
+    id: Number(row.id),
+    title: row.title,
+    set: row.set_type,
+    category: row.category,
+    date: row.date,
+    number: row.number,
+    rating: row.rating,
+    unplayed: Boolean(row.unplayed),
+    purchased: Boolean(row.purchased),
+    completed: Boolean(row.completed),
+    missingGapNotice: row.missing_gap_notice,
+    readingChapter: row.reading_chapter || '',
+    privateComment: row.private_comment || ''
+  };
+}
+
+async function fetchDataFromSupabase() {
+  if (!supabaseClient || !currentUser) return;
+
+  try {
     const { data: catData, error: catErr } = await supabaseClient
       .from('categories')
       .select('name');
@@ -41,40 +230,31 @@ async function fetchDataFromSupabase() {
       appData.categories = catData.map(c => c.name);
     }
 
-    // 2. Elementi
     const { data: itemData, error: itemErr } = await supabaseClient
       .from('items')
       .select('*');
 
-    if (!itemErr && itemData) {
-      appData.items = itemData.map(row => ({
-        id: Number(row.id),
-        title: row.title,
-        set: row.set_type,
-        category: row.category,
-        date: row.date,
-        number: row.number,
-        rating: row.rating,
-        unplayed: Boolean(row.unplayed),
-        purchased: Boolean(row.purchased),
-        missingGapNotice: row.missing_gap_notice,
-        readingChapter: row.reading_chapter || '',
-        privateComment: row.private_comment || ''
-      }));
+    if (itemErr) throw itemErr;
+
+    if (itemData) {
+      appData.items = itemData.map(formatRowToItem);
     }
 
+    setCloudStatus('online');
     saveData();
     updateCategoryDropdown();
     renderList();
-  } catch (err) {}
+  } catch (err) {
+    console.error('Errore durante il recupero dei dati da Supabase:', err);
+    setCloudStatus('error');
+  }
 }
 
-// Sincronizza una singola riga su Supabase (Upsert)
 async function syncItemToSupabase(item) {
-  if (!supabaseClient) return;
+  if (!supabaseClient || !currentUser) return;
 
   try {
-    await supabaseClient.from('items').upsert({
+    const { error } = await supabaseClient.from('items').upsert({
       id: item.id,
       title: item.title,
       set_type: item.set,
@@ -84,38 +264,53 @@ async function syncItemToSupabase(item) {
       rating: item.rating !== undefined ? item.rating : null,
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
+      completed: Boolean(item.completed),
       missing_gap_notice: item.missingGapNotice || null,
       reading_chapter: item.readingChapter || null,
       private_comment: item.privateComment || null
     });
-  } catch (err) {}
+
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error(`Errore sync item #${item.id}:`, err);
+    setCloudStatus('error');
+  }
 }
 
-// Rimuove una riga da Supabase
 async function deleteItemFromSupabase(id) {
-  if (!supabaseClient) return;
+  if (!supabaseClient || !currentUser) return;
 
   try {
-    await supabaseClient.from('items').delete().eq('id', id);
-  } catch (err) {}
+    const { error } = await supabaseClient.from('items').delete().eq('id', id);
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error(`Errore eliminazione item #${id}:`, err);
+    setCloudStatus('error');
+  }
 }
 
-// Sincronizza le categorie su Supabase
 async function syncCategoriesToSupabase() {
-  if (!supabaseClient) return;
+  if (!supabaseClient || !currentUser) return;
 
   try {
     const payload = appData.categories.map(c => ({ id: c, name: c }));
-    await supabaseClient.from('categories').upsert(payload);
-  } catch (err) {}
+    const { error } = await supabaseClient.from('categories').upsert(payload);
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error('Errore sync categorie:', err);
+    setCloudStatus('error');
+  }
 }
 
 // ----------------------------------------------------
-// STATO APPLICAZIONE LOCALE (INIZIALIZZAZIONE VUOTA)
+// STATO APPLICAZIONE LOCALE
 // ----------------------------------------------------
 const DEFAULT_DATA = {
   categories: ['Generale', 'Manga', 'Comics', 'Libri', 'Videogiochi'],
-  items: [] // Nessun volume predefinito: parte completamente vuoto
+  items: []
 };
 
 let appData = JSON.parse(localStorage.getItem('collection_data')) || JSON.parse(JSON.stringify(DEFAULT_DATA));
@@ -123,6 +318,7 @@ let appData = JSON.parse(localStorage.getItem('collection_data')) || JSON.parse(
 appData.items.forEach(item => {
   if (typeof item.purchased === 'undefined') item.purchased = false;
   if (typeof item.unplayed === 'undefined') item.unplayed = false;
+  if (typeof item.completed === 'undefined') item.completed = false;
   if (typeof item.readingChapter === 'undefined') item.readingChapter = '';
   if (typeof item.privateComment === 'undefined') item.privateComment = '';
   if (item.rating && item.rating <= 5) item.rating = item.rating * 20;
@@ -139,6 +335,7 @@ let searchSeriesQuery = '';
 let deletedItemBuffer = null;
 let undoTimeoutId = null;
 let currentOverviewItemId = null;
+let html5QrCodeScanner = null;
 
 const SORT_LABELS = {
   date: 'Per Data',
@@ -158,7 +355,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
-// DOM
+// Elementi DOM
 const contentList = document.getElementById('contentList');
 const categoryFilter = document.getElementById('categoryFilter');
 const setTabs = document.getElementById('setTabs');
@@ -180,7 +377,7 @@ const undoToast = document.getElementById('undoToast');
 const undoToastMsg = document.getElementById('undoToastMsg');
 const undoBtn = document.getElementById('undoBtn');
 
-// Modale Elemento Form
+// Modale Form
 const openModalBtn = document.getElementById('openModalBtn');
 const closeModalBtn = document.getElementById('closeModalBtn');
 const cancelBtn = document.getElementById('cancelBtn');
@@ -195,6 +392,8 @@ const purchasesFields = document.getElementById('purchasesFields');
 const dateGroupWrapper = document.getElementById('dateGroupWrapper');
 const itemDate = document.getElementById('itemDate');
 const itemNumber = document.getElementById('itemNumber');
+const completedGroupWrapper = document.getElementById('completedGroupWrapper');
+const itemCompletedCheckbox = document.getElementById('itemCompletedCheckbox');
 const ratingInputGroup = document.getElementById('ratingInputGroup');
 const itemScoreInput = document.getElementById('itemScoreInput');
 const itemUnplayedCheckbox = document.getElementById('itemUnplayedCheckbox');
@@ -203,6 +402,12 @@ const categorySelect = document.getElementById('categorySelect');
 const newCategoryGroup = document.getElementById('newCategoryGroup');
 const newCategoryInput = document.getElementById('newCategoryInput');
 const existingTitlesList = document.getElementById('existingTitlesList');
+
+// Scanner Barcode
+const startScanBtn = document.getElementById('startScanBtn');
+const scannerContainer = document.getElementById('scannerContainer');
+const closeScannerBtn = document.getElementById('closeScannerBtn');
+const scannerStatus = document.getElementById('scannerStatus');
 
 // Modale Panoramica Posseduti
 const overviewModalBackdrop = document.getElementById('overviewModalBackdrop');
@@ -217,6 +422,16 @@ const overviewCommentInput = document.getElementById('overviewCommentInput');
 const overviewEditFullBtn = document.getElementById('overviewEditFullBtn');
 const saveOverviewDetailsBtn = document.getElementById('saveOverviewDetailsBtn');
 
+// Modale Statistiche
+const openStatsBtn = document.getElementById('openStatsBtn');
+const closeStatsBtn = document.getElementById('closeStatsBtn');
+const statsModalBackdrop = document.getElementById('statsModalBackdrop');
+const statTotalItems = document.getElementById('statTotalItems');
+const statTotalOwned = document.getElementById('statTotalOwned');
+const statAverageRating = document.getElementById('statAverageRating');
+const statCompleteRate = document.getElementById('statCompleteRate');
+const statsCatList = document.getElementById('statsCatList');
+
 // Modale Impostazioni
 const openSettingsBtn = document.getElementById('openSettingsBtn');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
@@ -225,24 +440,18 @@ const settingsTitle = document.getElementById('settingsTitle');
 const settingsBackBtn = document.getElementById('settingsBackBtn');
 
 const settingsMainView = document.getElementById('settingsMainView');
-const settingsCloudView = document.getElementById('settingsCloudView');
+const settingsAccountView = document.getElementById('settingsAccountView');
 const settingsCategoriesView = document.getElementById('settingsCategoriesView');
 const settingsExportView = document.getElementById('settingsExportView');
 const settingsImportView = document.getElementById('settingsImportView');
 const settingsResetView = document.getElementById('settingsResetView');
 
-const goToCloudBtn = document.getElementById('goToCloudBtn');
+const goToAccountBtn = document.getElementById('goToAccountBtn');
 const goToCategoriesBtn = document.getElementById('goToCategoriesBtn');
 const goToExportBtn = document.getElementById('goToExportBtn');
 const goToImportBtn = document.getElementById('goToImportBtn');
 const goToResetBtn = document.getElementById('goToResetBtn');
 const notificationsToggleCheckbox = document.getElementById('notificationsToggleCheckbox');
-
-// Campi Cloud Supabase
-const supabaseUrlInput = document.getElementById('supabaseUrlInput');
-const supabaseKeyInput = document.getElementById('supabaseKeyInput');
-const saveCloudSettingsBtn = document.getElementById('saveCloudSettingsBtn');
-const disconnectCloudBtn = document.getElementById('disconnectCloudBtn');
 
 // CRUD Categorie
 const manageCatList = document.getElementById('manageCatList');
@@ -252,8 +461,9 @@ const addCatManageBtn = document.getElementById('addCatManageBtn');
 // Backup & Reset
 const confirmExportBtn = document.getElementById('confirmExportBtn');
 const exportAcquisti = document.getElementById('exportAcquisti');
-const exportVoti = document.getElementById('exportVoti');
 const exportPosseduti = document.getElementById('exportPosseduti');
+const exportVoti = document.getElementById('exportVoti');
+const exportListe = document.getElementById('exportListe');
 const triggerImportBtn = document.getElementById('triggerImportBtn');
 const importJsonFileInput = document.getElementById('importJsonFileInput');
 const cancelResetBtn = document.getElementById('cancelResetBtn');
@@ -349,8 +559,13 @@ setTabs.addEventListener('click', (e) => {
   const btn = e.target.closest('.segment-btn');
   if (!btn) return;
 
-  document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.segment-btn').forEach(b => {
+    b.classList.remove('active');
+    b.setAttribute('aria-selected', 'false');
+  });
+
   btn.classList.add('active');
+  btn.setAttribute('aria-selected', 'true');
   activeSet = btn.dataset.set;
   localStorage.setItem('pref_set', activeSet);
 
@@ -374,6 +589,13 @@ function updateFilterBarChips() {
       <button class="time-chip ${activeTimeFilter === 'all' ? 'active' : ''}" data-filter="all" type="button">Tutti</button>
       <button class="time-chip ${activeTimeFilter === 'scored' ? 'active' : ''}" data-filter="scored" type="button">★ Valutati</button>
       <button class="time-chip ${activeTimeFilter === 'unplayed' ? 'active' : ''}" data-filter="unplayed" type="button">⏳ Da iniziare</button>
+    `;
+  } else if (activeSet === 'Liste') {
+    timeFilterRow.style.display = 'flex';
+    timeFilterRow.innerHTML = `
+      <button class="time-chip ${activeTimeFilter === 'all' ? 'active' : ''}" data-filter="all" type="button">Tutti</button>
+      <button class="time-chip ${activeTimeFilter === 'hasnum' ? 'active' : ''}" data-filter="hasnum" type="button">Con Volume #</button>
+      <button class="time-chip ${activeTimeFilter === 'nonum' ? 'active' : ''}" data-filter="nonum" type="button">Generici</button>
     `;
   } else {
     timeFilterRow.style.display = 'none';
@@ -408,6 +630,7 @@ togglePurchasedBtn.addEventListener('click', () => {
   localStorage.setItem('pref_purchased_open', isPurchasedSectionOpen);
   purchasedList.classList.toggle('open', isPurchasedSectionOpen);
   chevronIcon.classList.toggle('open', isPurchasedSectionOpen);
+  togglePurchasedBtn.setAttribute('aria-expanded', String(isPurchasedSectionOpen));
 });
 
 function matchesActiveFilter(item) {
@@ -442,6 +665,9 @@ function matchesActiveFilter(item) {
   } else if (activeSet === 'Voti') {
     if (activeTimeFilter === 'unplayed') return item.unplayed === true;
     if (activeTimeFilter === 'scored') return item.unplayed !== true && item.rating !== null && item.rating !== undefined;
+  } else if (activeSet === 'Liste') {
+    if (activeTimeFilter === 'hasnum') return Boolean(item.number);
+    if (activeTimeFilter === 'nonum') return !item.number;
   }
 
   return true;
@@ -585,22 +811,26 @@ function renderStandardLayout(items) {
 function syncPurchasedWithPosseduti(purchasedItem) {
   const purchasedNum = parseInt(purchasedItem.number, 10);
   const titleClean = purchasedItem.title.trim().toLowerCase();
+  const itemCategory = purchasedItem.category || 'Generale';
 
   const existingPosseduto = appData.items.find(
-    i => i.set === 'Posseduti' && i.title.trim().toLowerCase() === titleClean
+    i => i.set === 'Posseduti' && 
+         i.title.trim().toLowerCase() === titleClean &&
+         (i.category || 'Generale') === itemCategory
   );
 
   if (!existingPosseduto) {
     const newItem = {
-      id: Date.now() + Math.floor(Math.random() * 500),
+      id: generateUniqueId(),
       title: purchasedItem.title,
       set: 'Posseduti',
-      category: purchasedItem.category || 'Generale',
+      category: itemCategory,
       date: null,
       number: purchasedItem.number || '1',
       rating: null,
       unplayed: false,
       purchased: false,
+      completed: Boolean(purchasedItem.completed),
       autoGeneratedFromPurchase: true,
       missingGapNotice: null,
       readingChapter: '',
@@ -638,13 +868,15 @@ function syncPurchasedWithPosseduti(purchasedItem) {
   saveData();
 }
 
-// Rollback se tolto il check per errore
 function rollbackPurchasedFromPosseduti(uncheckItem) {
   const uncheckNum = parseInt(uncheckItem.number, 10);
   const titleClean = uncheckItem.title.trim().toLowerCase();
+  const itemCategory = uncheckItem.category || 'Generale';
 
   const existingPosseduto = appData.items.find(
-    i => i.set === 'Posseduti' && i.title.trim().toLowerCase() === titleClean
+    i => i.set === 'Posseduti' && 
+         i.title.trim().toLowerCase() === titleClean &&
+         (i.category || 'Generale') === itemCategory
   );
 
   if (!existingPosseduto) return;
@@ -676,7 +908,6 @@ function rollbackPurchasedFromPosseduti(uncheckItem) {
   saveData();
 }
 
-// Notifiche Native di Uscita
 function checkAndTriggerTodayNotifications() {
   if (!notificationsEnabled) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -707,7 +938,6 @@ function checkAndTriggerTodayNotifications() {
   }
 }
 
-// Toggle Notifiche
 notificationsToggleCheckbox.checked = notificationsEnabled;
 notificationsToggleCheckbox.addEventListener('change', async (e) => {
   if (e.target.checked) {
@@ -748,6 +978,24 @@ function showToastNotice(message) {
   }, 4500);
 }
 
+async function shareItemDetails(item) {
+  const numStr = item.number ? ` #${item.number}` : '';
+  const dateStr = item.date ? ` (Uscita: ${formatDisplayDate(item.date)})` : '';
+  const shareText = `Dalla mia collezione: "${item.title}${numStr}" [${item.category || 'Generale'}]${dateStr}`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: item.title,
+        text: shareText
+      });
+    } catch (err) {}
+  } else {
+    navigator.clipboard.writeText(shareText);
+    showToastNotice('Dettagli copiati negli appunti!');
+  }
+}
+
 function createItemCard(item, isCompact) {
   const card = document.createElement('div');
   const catName = escapeHtml(item.category || 'Generale');
@@ -761,9 +1009,9 @@ function createItemCard(item, isCompact) {
   let checkHtml = '';
   if (item.set === 'Acquisti') {
     checkHtml = `
-      <button type="button" class="check-btn ${item.purchased ? 'checked' : ''}" title="${item.purchased ? 'Segna come da acquistare' : 'Segna come acquistato'}">
+      <button type="button" class="check-btn ${item.purchased ? 'checked' : ''}" aria-label="${item.purchased ? 'Segna come da acquistare' : 'Segna come acquistato'}" title="${item.purchased ? 'Segna come da acquistare' : 'Segna come acquistato'}">
         <div class="custom-checkbox">
-          <svg viewBox="0 0 24 24" width="12" height="12">
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
             <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
           </svg>
         </div>
@@ -785,7 +1033,7 @@ function createItemCard(item, isCompact) {
   }
 
   let mainValueHtml = '';
-  if (item.set === 'Acquisti') {
+  if (item.set === 'Acquisti' || item.set === 'Liste') {
     if (item.number) {
       mainValueHtml = `<span class="item-num">#${escapeHtml(item.number)}</span>`;
     }
@@ -797,7 +1045,7 @@ function createItemCard(item, isCompact) {
     if (item.unplayed) {
       mainValueHtml = `
         <span class="unplayed-badge" title="Non ancora letto o giocato">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
             <path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/>
           </svg>
           Da iniziare
@@ -809,15 +1057,20 @@ function createItemCard(item, isCompact) {
   }
 
   let nextVolHtml = '';
-  if (item.set === 'Acquisti' && item.number && !isNaN(parseInt(item.number, 10))) {
-    nextVolHtml = `<button class="icon-btn next-btn" title="Crea volume successivo (+1)" type="button">+1</button>`;
+  if (item.set === 'Acquisti' && item.number && !isNaN(parseInt(item.number, 10)) && !item.completed) {
+    nextVolHtml = `<button class="icon-btn next-btn" title="Crea volume successivo (+1)" aria-label="Crea volume successivo" type="button">+1</button>`;
   }
+
+  const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
 
   card.innerHTML = `
     <div class="card-left-section">
       ${checkHtml}
       <div class="item-main-details">
-        <span class="item-tag-inline" style="color: ${catColor};">${catName}</span>
+        <div class="item-tags-row">
+          <span class="item-tag-inline" style="color: ${catColor};">${catName}</span>
+          ${completedHtml}
+        </div>
         <span class="item-name">${escapeHtml(item.title)}</span>
       </div>
     </div>
@@ -827,13 +1080,18 @@ function createItemCard(item, isCompact) {
       ${mainValueHtml}
       ${nextVolHtml}
       <div class="card-actions">
-        <button class="icon-btn edit-btn" title="Modifica" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+        <button class="icon-btn share-btn" title="Condividi" aria-label="Condividi dettagli" type="button">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92c0-1.61-1.31-2.92-2.92-2.92z"/>
+          </svg>
+        </button>
+        <button class="icon-btn edit-btn" title="Modifica" aria-label="Modifica elemento" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
           </svg>
         </button>
-        <button class="icon-btn delete-btn" title="Elimina" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+        <button class="icon-btn delete-btn" title="Elimina" aria-label="Elimina elemento" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
           </svg>
         </button>
@@ -845,11 +1103,9 @@ function createItemCard(item, isCompact) {
     if (e.target.closest('.check-btn') || e.target.closest('.icon-btn')) return;
     if (item.set === 'Posseduti') {
       openOverviewModal(item);
+    } else {
+      openEditModal(item);
     }
-  });
-
-  card.addEventListener('dblclick', () => {
-    openEditModal(item);
   });
 
   if (item.set === 'Acquisti') {
@@ -878,6 +1134,11 @@ function createItemCard(item, isCompact) {
     });
   }
 
+  card.querySelector('.share-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    shareItemDetails(item);
+  });
+
   card.querySelector('.edit-btn').addEventListener('click', (e) => {
     e.stopPropagation();
     openEditModal(item);
@@ -890,6 +1151,118 @@ function createItemCard(item, isCompact) {
 
   return card;
 }
+
+// Scanner ISBN
+startScanBtn.addEventListener('click', () => {
+  scannerContainer.style.display = 'block';
+  scannerStatus.textContent = 'Avvio fotocamera in corso...';
+
+  if (!html5QrCodeScanner) {
+    html5QrCodeScanner = new Html5Qrcode('scannerReader');
+  }
+
+  html5QrCodeScanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 250, height: 150 } },
+    async (decodedText) => {
+      scannerStatus.textContent = `Trovato: ${decodedText}. Ricerca dati...`;
+      stopScanner();
+      await fetchBookDataByISBN(decodedText);
+    },
+    (errorMessage) => {}
+  ).catch(err => {
+    scannerStatus.textContent = 'Impossibile accedere alla fotocamera. Verifica i permessi.';
+  });
+});
+
+function stopScanner() {
+  if (html5QrCodeScanner) {
+    html5QrCodeScanner.stop().catch(() => {}).then(() => {
+      scannerContainer.style.display = 'none';
+    });
+  } else {
+    scannerContainer.style.display = 'none';
+  }
+}
+
+closeScannerBtn.addEventListener('click', stopScanner);
+
+async function fetchBookDataByISBN(isbn) {
+  try {
+    const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
+    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+    const data = await res.json();
+
+    if (data.items && data.items.length > 0) {
+      const volumeInfo = data.items[0].volumeInfo;
+      let titleFound = volumeInfo.title || '';
+      
+      const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
+      if (numMatch) {
+        itemTitle.value = numMatch[1];
+        itemNumber.value = numMatch[2];
+      } else {
+        itemTitle.value = titleFound;
+      }
+
+      showToastNotice(`Riconosciuto: "${titleFound}"!`);
+    } else {
+      showToastNotice(`Nessun titolo trovato per ISBN ${isbn}`);
+    }
+  } catch (err) {
+    showToastNotice('Errore nella ricerca online dell\'ISBN.');
+  }
+}
+
+// Statistiche
+openStatsBtn.addEventListener('click', () => {
+  const allItems = appData.items;
+  const ownedItems = allItems.filter(i => i.set === 'Posseduti');
+  const scoredItems = allItems.filter(i => i.set === 'Voti' && !i.unplayed && i.rating !== null && i.rating !== undefined);
+  const gapsCount = ownedItems.filter(i => Boolean(i.missingGapNotice)).length;
+
+  statTotalItems.textContent = allItems.length;
+  statTotalOwned.textContent = ownedItems.length;
+
+  if (scoredItems.length > 0) {
+    const avg = Math.round(scoredItems.reduce((acc, curr) => acc + curr.rating, 0) / scoredItems.length);
+    statAverageRating.textContent = `${avg}/100`;
+  } else {
+    statAverageRating.textContent = '-';
+  }
+
+  if (ownedItems.length > 0) {
+    const completeRate = Math.round(((ownedItems.length - gapsCount) / ownedItems.length) * 100);
+    statCompleteRate.textContent = `${completeRate}%`;
+  } else {
+    statCompleteRate.textContent = '100%';
+  }
+
+  statsCatList.innerHTML = '';
+  const catCounts = {};
+  appData.categories.forEach(c => catCounts[c] = 0);
+  ownedItems.forEach(i => {
+    const c = i.category || 'Generale';
+    catCounts[c] = (catCounts[c] || 0) + 1;
+  });
+
+  Object.entries(catCounts).forEach(([cat, count]) => {
+    const row = document.createElement('div');
+    row.className = 'stat-cat-row';
+    row.innerHTML = `
+      <span style="color: ${getCategoryColor(cat)}; font-weight: 600;">${escapeHtml(cat)}</span>
+      <span style="font-weight: 700;">${count} vol.</span>
+    `;
+    statsCatList.appendChild(row);
+  });
+
+  statsModalBackdrop.classList.add('active');
+});
+
+closeStatsBtn.addEventListener('click', () => statsModalBackdrop.classList.remove('active'));
+statsModalBackdrop.addEventListener('click', (e) => {
+  if (e.target === statsModalBackdrop) statsModalBackdrop.classList.remove('active');
+});
 
 // Panoramica Posseduti
 function openOverviewModal(item) {
@@ -981,7 +1354,7 @@ function createNextVolume(item) {
   const nextNum = isNaN(currentNum) ? '' : String(currentNum + 1);
 
   const newItem = {
-    id: Date.now(),
+    id: generateUniqueId(),
     title: item.title,
     set: 'Acquisti',
     category: item.category || 'Generale',
@@ -989,7 +1362,11 @@ function createNextVolume(item) {
     number: nextNum,
     rating: null,
     unplayed: false,
-    purchased: false
+    purchased: false,
+    completed: false,
+    missingGapNotice: null,
+    readingChapter: '',
+    privateComment: ''
   };
 
   appData.items.unshift(newItem);
@@ -1025,8 +1402,9 @@ function updateAutoCompletionList() {
 }
 
 function adjustModalFields(set) {
-  purchasesFields.style.display = (set === 'Acquisti' || set === 'Posseduti') ? 'flex' : 'none';
+  purchasesFields.style.display = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? 'flex' : 'none';
   dateGroupWrapper.style.display = (set === 'Acquisti') ? 'flex' : 'none';
+  completedGroupWrapper.style.display = (set === 'Acquisti' || set === 'Posseduti') ? 'block' : 'none';
   ratingInputGroup.style.display = (set === 'Voti') ? 'block' : 'none';
 }
 
@@ -1054,7 +1432,7 @@ itemTitle.addEventListener('input', (e) => {
   }
 
   const numberMatch = val.match(/^(.*?)\s+#?(\d+)$/);
-  if (numberMatch && (targetSet.value === 'Acquisti' || targetSet.value === 'Posseduti') && !itemNumber.value) {
+  if (numberMatch && (targetSet.value === 'Acquisti' || targetSet.value === 'Posseduti' || targetSet.value === 'Liste') && !itemNumber.value) {
     itemNumber.value = numberMatch[2];
   }
 });
@@ -1067,6 +1445,7 @@ function openCreateModalWithTitle(initialTitle) {
   modalTitle.textContent = 'Nuovo Elemento';
   editItemId.value = '';
   itemForm.reset();
+  stopScanner();
   itemScoreInput.disabled = false;
   itemScoreInput.placeholder = 'es. 85';
 
@@ -1089,6 +1468,7 @@ function openCreateModalWithTitle(initialTitle) {
 function openEditModal(item) {
   modalTitle.textContent = 'Modifica Elemento';
   editItemId.value = item.id;
+  stopScanner();
   populateFormCategories();
   updateAutoCompletionList();
 
@@ -1101,6 +1481,7 @@ function openEditModal(item) {
 
   itemDate.value = item.date || '';
   itemNumber.value = item.number || '';
+  itemCompletedCheckbox.checked = Boolean(item.completed);
 
   itemUnplayedCheckbox.checked = Boolean(item.unplayed);
   if (item.unplayed) {
@@ -1118,6 +1499,7 @@ function openEditModal(item) {
 }
 
 function closeModal() {
+  stopScanner();
   modalBackdrop.classList.remove('active');
   itemForm.reset();
   editItemId.value = '';
@@ -1141,7 +1523,7 @@ itemForm.addEventListener('submit', (e) => {
   let category = categorySelect.value;
 
   const numInTitleMatch = title.match(/^(.*?)\s+#?(\d+)$/);
-  if (numInTitleMatch && itemNumber.value === numInTitleMatch[2] && (set === 'Acquisti' || set === 'Posseduti')) {
+  if (numInTitleMatch && itemNumber.value === numInTitleMatch[2] && (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste')) {
     title = numInTitleMatch[1];
   }
 
@@ -1156,7 +1538,8 @@ itemForm.addEventListener('submit', (e) => {
   if (!category) category = 'Generale';
 
   const date = (set === 'Acquisti') ? (itemDate.value || null) : null;
-  const number = (set === 'Acquisti' || set === 'Posseduti') ? (itemNumber.value.trim() || null) : null;
+  const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (itemNumber.value.trim() || null) : null;
+  const completed = (set === 'Acquisti' || set === 'Posseduti') ? itemCompletedCheckbox.checked : false;
 
   let rating = null;
   let unplayed = false;
@@ -1182,18 +1565,20 @@ itemForm.addEventListener('submit', (e) => {
       existing.category = category;
       existing.date = date;
       existing.number = number;
+      existing.completed = completed;
       existing.rating = rating;
       existing.unplayed = unplayed;
       finalItem = existing;
     }
   } else {
     finalItem = {
-      id: Date.now(),
+      id: generateUniqueId(),
       title,
       set,
       category,
       date,
       number,
+      completed,
       rating,
       unplayed,
       purchased: false,
@@ -1213,7 +1598,9 @@ itemForm.addEventListener('submit', (e) => {
     activeSet = set;
     localStorage.setItem('pref_set', activeSet);
     document.querySelectorAll('.segment-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.set === set);
+      const isSelected = b.dataset.set === set;
+      b.classList.toggle('active', isSelected);
+      b.setAttribute('aria-selected', String(isSelected));
     });
     updateFilterBarChips();
   }
@@ -1229,6 +1616,7 @@ window.addEventListener('keydown', (e) => {
       closeModal();
       closeOverviewModal();
       closeSettingsModal();
+      statsModalBackdrop.classList.remove('active');
     }
     return;
   }
@@ -1243,13 +1631,14 @@ window.addEventListener('keydown', (e) => {
     closeModal();
     closeOverviewModal();
     closeSettingsModal();
+    statsModalBackdrop.classList.remove('active');
   }
 });
 
-// Sotto-viste Impostazioni
+// Impostazioni
 function showSettingsView(viewName) {
   settingsMainView.style.display = (viewName === 'main') ? 'block' : 'none';
-  settingsCloudView.style.display = (viewName === 'cloud') ? 'block' : 'none';
+  settingsAccountView.style.display = (viewName === 'account') ? 'block' : 'none';
   settingsCategoriesView.style.display = (viewName === 'categories') ? 'block' : 'none';
   settingsExportView.style.display = (viewName === 'export') ? 'block' : 'none';
   settingsImportView.style.display = (viewName === 'import') ? 'block' : 'none';
@@ -1258,11 +1647,9 @@ function showSettingsView(viewName) {
   if (viewName === 'main') {
     settingsTitle.textContent = 'Impostazioni';
     settingsBackBtn.style.display = 'none';
-  } else if (viewName === 'cloud') {
-    settingsTitle.textContent = 'Server Cloud';
+  } else if (viewName === 'account') {
+    settingsTitle.textContent = 'Account Supabase';
     settingsBackBtn.style.display = 'flex';
-    supabaseUrlInput.value = localStorage.getItem('supabase_url') || '';
-    supabaseKeyInput.value = localStorage.getItem('supabase_key') || '';
   } else if (viewName === 'categories') {
     settingsTitle.textContent = 'Gestione Categorie';
     settingsBackBtn.style.display = 'flex';
@@ -1292,7 +1679,7 @@ openSettingsBtn.addEventListener('click', openSettingsModal);
 closeSettingsBtn.addEventListener('click', closeSettingsModal);
 settingsBackBtn.addEventListener('click', () => showSettingsView('main'));
 
-goToCloudBtn.addEventListener('click', () => showSettingsView('cloud'));
+goToAccountBtn.addEventListener('click', () => showSettingsView('account'));
 goToCategoriesBtn.addEventListener('click', () => showSettingsView('categories'));
 goToExportBtn.addEventListener('click', () => showSettingsView('export'));
 goToImportBtn.addEventListener('click', () => showSettingsView('import'));
@@ -1300,39 +1687,6 @@ goToResetBtn.addEventListener('click', () => showSettingsView('reset'));
 
 settingsModalBackdrop.addEventListener('click', (e) => {
   if (e.target === settingsModalBackdrop) closeSettingsModal();
-});
-
-// Configurazione Cloud Supabase
-saveCloudSettingsBtn.addEventListener('click', () => {
-  const url = supabaseUrlInput.value.trim();
-  const key = supabaseKeyInput.value.trim();
-
-  if (!url || !key) {
-    alert('Inserisci sia l\'URL che la Anon Key.');
-    return;
-  }
-
-  supabaseUrl = url;
-  supabaseKey = key;
-  localStorage.setItem('supabase_url', url);
-  localStorage.setItem('supabase_key', key);
-
-  initSupabase();
-  showToastNotice('Server Supabase collegato con successo!');
-  showSettingsView('main');
-});
-
-disconnectCloudBtn.addEventListener('click', () => {
-  localStorage.removeItem('supabase_url');
-  localStorage.removeItem('supabase_key');
-  supabaseUrl = '';
-  supabaseKey = '';
-  supabaseClient = null;
-  supabaseUrlInput.value = '';
-  supabaseKeyInput.value = '';
-  if (cloudStatusDot) cloudStatusDot.classList.remove('online');
-  showToastNotice('Server Supabase scollegato.');
-  showSettingsView('main');
 });
 
 // CRUD Categorie
@@ -1350,14 +1704,14 @@ function renderManageCategoriesList() {
         <span class="cat-name-display">${escapeHtml(cat)}</span>
       </div>
       <div class="cat-actions">
-        <button class="icon-btn edit-cat-btn" title="Rinomina">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+        <button class="icon-btn edit-cat-btn" title="Rinomina" aria-label="Rinomina categoria ${escapeHtml(cat)}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
           </svg>
         </button>
         ${cat !== 'Generale' ? `
-        <button class="icon-btn delete-cat-btn" title="Elimina">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+        <button class="icon-btn delete-cat-btn" title="Elimina" aria-label="Elimina categoria ${escapeHtml(cat)}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
           </svg>
         </button>` : ''}
@@ -1436,6 +1790,7 @@ confirmExportBtn.addEventListener('click', () => {
   if (exportAcquisti.checked) selectedSets.push('Acquisti');
   if (exportPosseduti.checked) selectedSets.push('Posseduti');
   if (exportVoti.checked) selectedSets.push('Voti');
+  if (exportListe.checked) selectedSets.push('Liste');
 
   if (selectedSets.length === 0) {
     alert('Seleziona almeno un insieme da esportare.');
@@ -1451,6 +1806,7 @@ confirmExportBtn.addEventListener('click', () => {
       category: item.category || 'Generale',
       date: item.date || null,
       number: item.number || null,
+      completed: Boolean(item.completed),
       rating: item.rating !== undefined ? item.rating : null,
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
@@ -1460,7 +1816,7 @@ confirmExportBtn.addEventListener('click', () => {
     }));
 
   const exportPayload = {
-    appVersion: '3.5',
+    appVersion: '3.9',
     exportedAt: new Date().toISOString(),
     exportedBySet: selectedSets,
     categoriesList: appData.categories,
@@ -1535,12 +1891,13 @@ importJsonFileInput.addEventListener('change', (e) => {
           }
 
           const newItem = {
-            id: incoming.id || Date.now() + Math.floor(Math.random() * 1000),
+            id: incoming.id || generateUniqueId(),
             title: incoming.title,
             set: target,
             category: category,
             date: incoming.date || null,
             number: incoming.number || null,
+            completed: Boolean(incoming.completed),
             rating: incomingRating !== undefined ? incomingRating : null,
             unplayed: Boolean(incoming.unplayed),
             purchased: Boolean(incoming.purchased),
@@ -1580,11 +1937,13 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
   appData = JSON.parse(JSON.stringify(DEFAULT_DATA));
   saveData();
 
-  if (supabaseClient) {
+  if (supabaseClient && currentUser) {
     try {
       await supabaseClient.from('items').delete().neq('id', 0);
       await supabaseClient.from('categories').delete().neq('id', '');
-    } catch (e) {}
+    } catch (e) {
+      console.error('Errore durante il reset su Supabase:', e);
+    }
   }
 
   activeSet = 'Acquisti';
@@ -1595,12 +1954,14 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
 
   closeSettingsModal();
   initApp();
-  alert('Dati ripristinati allo stato iniziale (Collezione completamente vuota).');
+  alert('Dati ripristinati allo stato iniziale sia in locale che su Supabase.');
 });
 
 function initApp() {
   document.querySelectorAll('.segment-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.set === activeSet);
+    const isSelected = b.dataset.set === activeSet;
+    b.classList.toggle('active', isSelected);
+    b.setAttribute('aria-selected', String(isSelected));
   });
 
   updateFilterBarChips();
@@ -1609,13 +1970,13 @@ function initApp() {
   if (isPurchasedSectionOpen) {
     purchasedList.classList.add('open');
     chevronIcon.classList.add('open');
+    togglePurchasedBtn.setAttribute('aria-expanded', 'true');
   }
 
   updateCategoryDropdown();
   renderList();
-
-  initSupabase();
-  checkAndTriggerTodayNotifications();
 }
 
+// Avvio applicazione con controllo autenticazione
 initApp();
+initAuthAndApp();
