@@ -255,23 +255,29 @@ async function syncItemToSupabase(item) {
   if (!supabaseClient || !currentUser) return;
 
   try {
-    const { error } = await supabaseClient.from('items').upsert({
-      id: item.id,
+    const payload = {
+      id: Number(item.id),
+      user_id: currentUser.id, // Obbligatorio se RLS è attivo
       title: item.title,
       set_type: item.set,
       category: item.category || 'Generale',
       date: item.date || null,
-      number: item.number || null,
-      rating: item.rating !== undefined ? item.rating : null,
+      number: item.number ? String(item.number) : null,
+      rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
       completed: Boolean(item.completed),
       missing_gap_notice: item.missingGapNotice || null,
       reading_chapter: item.readingChapter || null,
       private_comment: item.privateComment || null
-    });
+    };
 
-    if (error) throw error;
+    const { error } = await supabaseClient.from('items').upsert(payload);
+
+    if (error) {
+      console.error(`Errore Supabase su item #${item.id}:`, error.message, error.details);
+      throw error;
+    }
     setCloudStatus('online');
   } catch (err) {
     console.error(`Errore sync item #${item.id}:`, err);
