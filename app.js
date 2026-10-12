@@ -763,8 +763,9 @@ function renderList() {
 
   let filtered = appData.items.filter(item => item.set === activeSet);
 
-  if (activeCategory !== 'Tutte') {
-    filtered = filtered.filter(item => (item.category || 'Generale') === activeCategory);
+  // Se è "Generale" o "Tutte", NON filtra per categoria e mostra tutti i volumi
+  if (activeCategory !== 'Tutte' && activeCategory !== 'Generale') {
+    filtered = filtered.filter(item => item.category === activeCategory);
   }
 
   if (searchSeriesQuery) {
