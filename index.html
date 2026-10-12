@@ -21,13 +21,13 @@
 </head>
 <body>
 
-  <!-- SCHERMATA LOGIN DI SICUREZZA -->
+  <!-- SCHERMATA LOGIN -->
   <div class="auth-overlay" id="authOverlay">
     <div class="auth-card">
       <div class="auth-header">
         <span class="auth-badge-dot"></span>
         <h2>Accesso Collezione</h2>
-        <p>Inserisci le tue credenziali per sbloccare e sincronizzare la collezione.</p>
+        <p>Inserisci le tue credenziali per sincronizzare la collezione.</p>
       </div>
 
       <form id="loginForm">
@@ -50,111 +50,126 @@
     </div>
   </div>
 
-  <div class="site-container" id="appContent" style="display: none;">
-    <header class="navbar">
+  <!-- LAYOUT APPLICAZIONE (SIDEBAR A SINISTRA + CONTENUTI A DESTRA) -->
+  <div class="site-layout" id="appContent" style="display: none;">
+    
+    <!-- COLONNA COMANDI A SINISTRA -->
+    <aside class="sidebar-left">
       <div class="nav-brand">
         <span class="brand-dot" id="cloudStatusDot" title="Stato sincronizzazione Cloud"></span>
         <h1>Collezione</h1>
       </div>
 
-      <div class="nav-actions-group">
-        <nav class="nav-segmented" id="setTabs" role="tablist" aria-label="Sezioni collezione">
-          <button class="segment-btn active" data-set="Acquisti" type="button" role="tab" aria-selected="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
-            </svg>
-            Acquisti
-          </button>
-          <button class="segment-btn" data-set="Posseduti" type="button" role="tab" aria-selected="false">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-            </svg>
-            Posseduti
-          </button>
-          <button class="segment-btn" data-set="Voti" type="button" role="tab" aria-selected="false">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
-            </svg>
-            Voti
-          </button>
-          <button class="segment-btn" data-set="Liste" type="button" role="tab" aria-selected="false">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
-            </svg>
-            Liste
-          </button>
-        </nav>
-
-        <button class="settings-btn" id="openStatsBtn" title="Statistiche Collezione" aria-label="Visualizza statistiche" type="button">
+      <nav class="nav-segmented" id="setTabs" role="tablist" aria-label="Sezioni collezione">
+        <button class="segment-btn active" data-set="Acquisti" type="button" role="tab" aria-selected="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
+          </svg>
+          Acquisti
+        </button>
+        <button class="segment-btn" data-set="Posseduti" type="button" role="tab" aria-selected="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+          </svg>
+          Posseduti
+        </button>
+        <button class="segment-btn" data-set="Voti" type="button" role="tab" aria-selected="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+          </svg>
+          Voti
+        </button>
+        <button class="segment-btn" data-set="Liste" type="button" role="tab" aria-selected="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
+          </svg>
+          Liste
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="sidebar-action-btn" id="openStatsBtn" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
             <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
           </svg>
+          Statistiche
         </button>
-
-        <button class="settings-btn" id="openSettingsBtn" title="Impostazioni" aria-label="Apri impostazioni" type="button">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <button class="sidebar-action-btn" id="openSettingsBtn" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
             <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
           </svg>
+          Impostazioni
         </button>
       </div>
-    </header>
+    </aside>
 
-    <div class="filter-bar">
-      <div class="filter-dropdown-pill">
-        <select id="categoryFilter" aria-label="Filtra per categoria"></select>
-      </div>
+    <!-- AREA PRINCIPALE CONTENUTI -->
+    <main class="main-content-area">
       
-      <button class="sort-tag-btn" id="toggleSortBtn" title="Clicca per cambiare ordinamento" type="button">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
-          <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/>
-        </svg>
-        <span id="sortIndicatorText">Per Data</span>
-      </button>
-    </div>
-
-    <!-- Ricerca -->
-    <div class="search-bar-wrap" id="searchBarWrap">
-      <div class="search-input-box">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-          <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-        </svg>
-        <input type="text" id="seriesSearchInput" placeholder="Cerca opera o titolo (Premi '/' per cercare)..." aria-label="Cerca nella collezione">
-        <button type="button" class="clear-search-btn" id="clearSearchBtn" title="Cancella ricerca" aria-label="Cancella ricerca" style="display: none;">&times;</button>
-      </div>
-    </div>
-
-    <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri per data o stato"></div>
-    <main class="cards-flow" id="contentList" aria-live="polite"></main>
-
-    <section class="purchased-section" id="purchasedSection" style="display: none;">
-      <button class="accordion-header" id="togglePurchasedBtn" type="button" aria-expanded="false" aria-controls="purchasedList">
-        <div class="accordion-title">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
-          </svg>
-          <span>Già Acquistati (<span id="purchasedCount">0</span>)</span>
+      <div class="filter-bar">
+        <div class="filter-dropdown-pill">
+          <select id="categoryFilter" aria-label="Filtra per categoria"></select>
         </div>
-        <svg class="chevron-icon" id="chevronIcon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-          <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
-        </svg>
-      </button>
+        
+        <button class="sort-tag-btn" id="toggleSortBtn" title="Clicca per cambiare ordinamento" type="button">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/>
+          </svg>
+          <span id="sortIndicatorText">Per Data</span>
+        </button>
+      </div>
 
-      <div class="accordion-body" id="purchasedList"></div>
-    </section>
+      <!-- Ricerca -->
+      <div class="search-bar-wrap" id="searchBarWrap">
+        <div class="search-input-box">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+          </svg>
+          <input type="text" id="seriesSearchInput" placeholder="Cerca opera o titolo (Premi '/' per cercare)..." aria-label="Cerca nella collezione">
+          <button type="button" class="clear-search-btn" id="clearSearchBtn" title="Cancella ricerca" aria-label="Cancella ricerca" style="display: none;">&times;</button>
+        </div>
+      </div>
+
+      <!-- Filtri Rapidi -->
+      <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri per data o stato"></div>
+
+      <!-- Lista Card -->
+      <div class="cards-flow" id="contentList" aria-live="polite"></div>
+
+      <!-- Sezione Già Acquistati -->
+      <section class="purchased-section" id="purchasedSection" style="display: none;">
+        <button class="accordion-header" id="togglePurchasedBtn" type="button" aria-expanded="false" aria-controls="purchasedList">
+          <div class="accordion-title">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+            </svg>
+            <span>Già Acquistati (<span id="purchasedCount">0</span>)</span>
+          </div>
+          <svg class="chevron-icon" id="chevronIcon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+          </svg>
+        </button>
+
+        <div class="accordion-body" id="purchasedList"></div>
+      </section>
+    </main>
+
   </div>
 
+  <!-- Toast Notifica "Annulla" -->
   <div class="undo-toast" id="undoToast" role="status" aria-live="assertive">
     <span id="undoToastMsg">Elemento eliminato</span>
     <button type="button" id="undoBtn">Annulla</button>
   </div>
 
+  <!-- FAB (+) -->
   <button class="fab-btn" id="openModalBtn" title="Aggiungi elemento (Tasto N)" aria-label="Aggiungi nuovo elemento" type="button" style="display: none;">
-    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
       <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
     </svg>
   </button>
 
-  <!-- Modale Inserimento/Modifica Elemento -->
+  <!-- Modale Elemento -->
   <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-card">
       <div class="modal-header">
@@ -251,7 +266,7 @@
     </div>
   </div>
 
-  <!-- Modale Panoramica Dettagliata per Posseduti -->
+  <!-- Modale Panoramica Posseduti -->
   <div class="modal-backdrop" id="overviewModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="overviewTitleDisplay">
     <div class="modal-card overview-card">
       <div class="modal-header">
@@ -295,7 +310,7 @@
     </div>
   </div>
 
-  <!-- Modale Statistiche Collezione -->
+  <!-- Modale Statistiche -->
   <div class="modal-backdrop" id="statsModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="statsModalTitle">
     <div class="modal-card stats-modal-card">
       <div class="modal-header">
@@ -335,7 +350,7 @@
       <div class="modal-header">
         <div class="modal-header-left">
           <button type="button" class="back-btn" id="settingsBackBtn" style="display: none;" title="Torna alle impostazioni" aria-label="Torna indietro">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
               <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
             </svg>
           </button>
@@ -347,11 +362,10 @@
       <div class="settings-view" id="settingsMainView">
         <div class="settings-menu-list">
 
-          <!-- Gestione Account e Logout -->
           <button type="button" class="settings-menu-item" id="goToAccountBtn">
             <div class="menu-item-left">
               <div class="menu-icon-box green">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                   <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
                 </svg>
               </div>
@@ -366,7 +380,7 @@
           <div class="settings-menu-item-toggle">
             <div class="menu-item-left">
               <div class="menu-icon-box green">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                   <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
                 </svg>
               </div>
@@ -384,7 +398,7 @@
           <button type="button" class="settings-menu-item" id="goToCategoriesBtn">
             <div class="menu-item-left">
               <div class="menu-icon-box orange">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                   <path d="M12 2l-5.5 9h11zM7 13.5A3.5 3.5 0 1 0 7 20.5 3.5 3.5 0 0 0 7 13.5zm9 .5h5v5h-5z"/>
                 </svg>
               </div>
@@ -399,7 +413,7 @@
           <button type="button" class="settings-menu-item" id="goToExportBtn">
             <div class="menu-item-left">
               <div class="menu-icon-box cyan">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                   <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
                 </svg>
               </div>
@@ -414,7 +428,7 @@
           <button type="button" class="settings-menu-item" id="goToImportBtn">
             <div class="menu-item-left">
               <div class="menu-icon-box purple">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                   <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
                 </svg>
               </div>
@@ -429,7 +443,7 @@
           <button type="button" class="settings-menu-item" id="goToResetBtn">
             <div class="menu-item-left">
               <div class="menu-icon-box red">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
                   <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                 </svg>
               </div>
@@ -443,7 +457,7 @@
         </div>
       </div>
 
-      <!-- VISTA 2: Schermata Account & Logout -->
+      <!-- VISTA 2: Schermata Account -->
       <div class="settings-view" id="settingsAccountView" style="display: none;">
         <p class="settings-desc">Sei autenticato con il tuo account Supabase. Tutti i dati sono sincronizzati in tempo reale e protetti da crittografia.</p>
         <div class="account-info-box">
@@ -502,7 +516,7 @@
 
         <div class="modal-actions" style="margin-top: 1.25rem;">
           <button type="button" class="btn-primary" id="confirmExportBtn" style="width: 100%;">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;">
               <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
             </svg>
             Scarica Backup JSON
@@ -516,16 +530,16 @@
 
         <input type="file" id="importJsonFileInput" accept=".json" style="display: none;">
         <button type="button" class="btn-primary" id="triggerImportBtn" style="width: 100%; margin-top: 1rem;">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;">
             <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
           </svg>
           Scegli File JSON da Importare
         </button>
       </div>
 
-      <!-- VISTA 6: Ripristino di Fabbrica -->
+      <!-- VISTA 6: Reset -->
       <div class="settings-view" id="settingsResetView" style="display: none;">
-        <p class="settings-desc" style="color: var(--danger-color);">Attenzione: Questa operazione cancellerà permanentemente tutti gli elementi sia in locale che dal server cloud collegato.</p>
+        <p class="settings-desc" style="color: var(--danger-color);">Attenzione: Questa operazione cancellerà permanentemente tutti gli elementi sia in locale che dal server cloud.</p>
 
         <div class="modal-actions" style="margin-top: 1.5rem;">
           <button type="button" class="btn-secondary" id="cancelResetBtn">Annulla</button>
