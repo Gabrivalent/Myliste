@@ -50,76 +50,118 @@
     </div>
   </div>
 
-  <!-- LAYOUT APPLICAZIONE (SIDEBAR A SINISTRA + CONTENUTI A DESTRA) -->
+  <!-- LAYOUT A SCHERMO INTERO STILE TWITCH -->
   <div class="site-layout" id="appContent" style="display: none;">
     
-    <!-- COLONNA COMANDI A SINISTRA -->
-    <aside class="sidebar-left">
-      <div class="nav-brand">
-        <span class="brand-dot" id="cloudStatusDot" title="Stato sincronizzazione Cloud"></span>
-        <h1>Collezione</h1>
+    <!-- SIDEBAR FISSA A SINISTRA -->
+    <aside class="twitch-sidebar" id="twitchSidebar">
+      <div class="sidebar-header">
+        <div class="nav-brand">
+          <span class="brand-dot" id="cloudStatusDot" title="Stato sincronizzazione Cloud"></span>
+          <span class="brand-title">Collezione</span>
+        </div>
+        <button class="collapse-toggle-btn" id="toggleSidebarBtn" title="Comprimi/Espandi barra" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+          </svg>
+        </button>
       </div>
 
-      <nav class="nav-segmented" id="setTabs" role="tablist" aria-label="Sezioni collezione">
-        <button class="segment-btn active" data-set="Acquisti" type="button" role="tab" aria-selected="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-            <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
-          </svg>
-          Acquisti
+      <div class="sidebar-section-title">SEZIONI</div>
+
+      <nav class="sidebar-nav" id="setTabs" role="tablist" aria-label="Sezioni collezione">
+        <button class="nav-item-btn active" data-set="Acquisti" type="button" role="tab" aria-selected="true" title="Acquisti">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Acquisti</span>
         </button>
-        <button class="segment-btn" data-set="Posseduti" type="button" role="tab" aria-selected="false">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-          </svg>
-          Posseduti
+
+        <button class="nav-item-btn" data-set="Posseduti" type="button" role="tab" aria-selected="false" title="Posseduti">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Posseduti</span>
         </button>
-        <button class="segment-btn" data-set="Voti" type="button" role="tab" aria-selected="false">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-            <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
-          </svg>
-          Voti
+
+        <button class="nav-item-btn" data-set="Voti" type="button" role="tab" aria-selected="false" title="Voti">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Voti</span>
         </button>
-        <button class="segment-btn" data-set="Liste" type="button" role="tab" aria-selected="false">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-            <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
-          </svg>
-          Liste
+
+        <button class="nav-item-btn" data-set="Liste" type="button" role="tab" aria-selected="false" title="Liste">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Liste</span>
         </button>
       </nav>
 
       <div class="sidebar-footer">
-        <button class="sidebar-action-btn" id="openStatsBtn" type="button">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
-          </svg>
-          Statistiche
+        <button class="nav-item-btn" id="openBatchModalBtn" type="button" title="Aggiungi Blocco Volumi">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zm-7-2h2v-3h3v-2h-3V6h-2v3H9v2h3v3z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Blocco Volumi</span>
         </button>
-        <button class="sidebar-action-btn" id="openSettingsBtn" type="button">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-          </svg>
-          Impostazioni
+
+        <button class="nav-item-btn" id="openStatsBtn" type="button" title="Statistiche">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Statistiche</span>
+        </button>
+
+        <button class="nav-item-btn" id="openSettingsBtn" type="button" title="Impostazioni">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Impostazioni</span>
         </button>
       </div>
     </aside>
 
-    <!-- AREA PRINCIPALE CONTENUTI -->
+    <!-- AREA CENTRALE DEI CONTENUTI -->
     <main class="main-content-area">
-      
       <div class="filter-bar">
         <div class="filter-dropdown-pill">
           <select id="categoryFilter" aria-label="Filtra per categoria"></select>
         </div>
         
-        <button class="sort-tag-btn" id="toggleSortBtn" title="Clicca per cambiare ordinamento" type="button">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-            <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/>
-          </svg>
-          <span id="sortIndicatorText">Per Data</span>
-        </button>
+        <div class="filter-bar-right">
+          <button class="sort-tag-btn" id="openBatchTopBtn" title="Aggiungi serie a blocchi (es. 1-10)" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/>
+            </svg>
+            <span>Blocco Volumi</span>
+          </button>
+
+          <button class="sort-tag-btn" id="toggleSortBtn" title="Cambia ordinamento" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/>
+            </svg>
+            <span id="sortIndicatorText">Per Data</span>
+          </button>
+        </div>
       </div>
 
-      <!-- Ricerca -->
+      <!-- Barra di ricerca -->
       <div class="search-bar-wrap" id="searchBarWrap">
         <div class="search-input-box">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
@@ -130,13 +172,9 @@
         </div>
       </div>
 
-      <!-- Filtri Rapidi -->
-      <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri per data o stato"></div>
-
-      <!-- Lista Card -->
+      <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri temporali"></div>
       <div class="cards-flow" id="contentList" aria-live="polite"></div>
 
-      <!-- Sezione Già Acquistati -->
       <section class="purchased-section" id="purchasedSection" style="display: none;">
         <button class="accordion-header" id="togglePurchasedBtn" type="button" aria-expanded="false" aria-controls="purchasedList">
           <div class="accordion-title">
@@ -149,11 +187,9 @@
             <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
           </svg>
         </button>
-
         <div class="accordion-body" id="purchasedList"></div>
       </section>
     </main>
-
   </div>
 
   <!-- Toast Notifica "Annulla" -->
@@ -162,14 +198,61 @@
     <button type="button" id="undoBtn">Annulla</button>
   </div>
 
-  <!-- FAB (+) -->
+  <!-- Pulsante flottante (+) -->
   <button class="fab-btn" id="openModalBtn" title="Aggiungi elemento (Tasto N)" aria-label="Aggiungi nuovo elemento" type="button" style="display: none;">
     <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
       <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
     </svg>
   </button>
 
-  <!-- Modale Elemento -->
+  <!-- Modale Aggiungi Blocco Volumi (Batch) -->
+  <div class="modal-backdrop" id="batchModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="batchModalTitle">Aggiungi Blocco Volumi</h2>
+        <button type="button" class="close-btn" id="closeBatchModalBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+
+      <form id="batchItemForm">
+        <div class="input-group">
+          <label for="batchTitle">Titolo Serie</label>
+          <input type="text" id="batchTitle" list="existingTitlesListBatch" placeholder="es. Gachiakuta, Chainsaw Man..." required autocomplete="off">
+          <datalist id="existingTitlesListBatch"></datalist>
+        </div>
+
+        <div class="form-row">
+          <div class="input-group flex-1">
+            <label for="batchStartVol">Dal Volume #</label>
+            <input type="number" id="batchStartVol" min="1" value="1" required>
+          </div>
+          <div class="input-group flex-1">
+            <label for="batchEndVol">Al Volume #</label>
+            <input type="number" id="batchEndVol" min="1" value="10" required>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="batchTargetSet">Insieme di Destinazione</label>
+          <select id="batchTargetSet">
+            <option value="Posseduti">Posseduti (Tutti già in collezione)</option>
+            <option value="Acquisti">Acquisti (Da recuperare / Comprare)</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label for="batchCategorySelect">Categoria</label>
+          <select id="batchCategorySelect"></select>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="cancelBatchBtn">Annulla</button>
+          <button type="submit" class="btn-primary" id="confirmBatchBtn">Crea Volumi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modale Inserimento/Modifica Elemento Singolo -->
   <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-card">
       <div class="modal-header">
@@ -516,7 +599,7 @@
 
         <div class="modal-actions" style="margin-top: 1.25rem;">
           <button type="button" class="btn-primary" id="confirmExportBtn" style="width: 100%;">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;" aria-hidden="true">
               <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
             </svg>
             Scarica Backup JSON
@@ -530,7 +613,7 @@
 
         <input type="file" id="importJsonFileInput" accept=".json" style="display: none;">
         <button type="button" class="btn-primary" id="triggerImportBtn" style="width: 100%; margin-top: 1rem;">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;" aria-hidden="true">
             <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
           </svg>
           Scegli File JSON da Importare

@@ -11,14 +11,14 @@ if ('serviceWorker' in navigator) {
 // ----------------------------------------------------
 const SUPABASE_CONFIG = {
   url: 'https://aiagtwiqeecaxhaaqzmx.supabase.co',
-  anonKey: 'sb_publishable_PodV98vtRyuW329msfQKrA_goxv6C_c' // La chiave anon pubblica di Supabase
+  anonKey: 'sb_publishable_PodV98vtRyuW329msfQKrA_goxv6C_c'
 };
 
 let supabaseClient = null;
 let realtimeChannel = null;
 let currentUser = null;
 
-// Elementi Auth
+// Elementi Auth & Overlay
 const authOverlay = document.getElementById('authOverlay');
 const appContent = document.getElementById('appContent');
 const loginForm = document.getElementById('loginForm');
@@ -46,7 +46,7 @@ function setCloudStatus(status) {
   }
 }
 
-// Generatore ID sicuro
+// Generatore ID univoco sicuro
 function generateUniqueId() {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     const array = new Uint32Array(1);
@@ -61,13 +61,12 @@ function generateUniqueId() {
 // ----------------------------------------------------
 async function initAuthAndApp() {
   if (!window.supabase) {
-    alert('Libreria Supabase non caricata. Verifica la connessione a internet.');
+    alert('Libreria Supabase non caricata. Verifica la connessione internet.');
     return;
   }
 
   supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
 
-  // Ascolta i cambiamenti di autenticazione (Login, Logout, Token Refresh)
   supabaseClient.auth.onAuthStateChange((event, session) => {
     if (session && session.user) {
       handleAuthenticatedState(session.user);
@@ -76,7 +75,6 @@ async function initAuthAndApp() {
     }
   });
 
-  // Controlla se esiste già una sessione attiva
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (session && session.user) {
     handleAuthenticatedState(session.user);
@@ -87,9 +85,9 @@ async function initAuthAndApp() {
 
 function handleAuthenticatedState(user) {
   currentUser = user;
-  authOverlay.style.display = 'none';
-  appContent.style.display = 'flex';
-  openModalBtn.style.display = 'flex';
+  if (authOverlay) authOverlay.style.display = 'none';
+  if (appContent) appContent.style.display = 'flex';
+  if (openModalBtn) openModalBtn.style.display = 'flex';
 
   if (accountUserEmail) accountUserEmail.textContent = user.email;
   if (currentAccountDisplay) currentAccountDisplay.textContent = user.email;
@@ -101,9 +99,9 @@ function handleAuthenticatedState(user) {
 
 function handleUnauthenticatedState() {
   currentUser = null;
-  authOverlay.style.display = 'flex';
-  appContent.style.display = 'none';
-  openModalBtn.style.display = 'none';
+  if (authOverlay) authOverlay.style.display = 'flex';
+  if (appContent) appContent.style.display = 'none';
+  if (openModalBtn) openModalBtn.style.display = 'none';
   setCloudStatus('offline');
 
   if (realtimeChannel && supabaseClient) {
@@ -112,41 +110,44 @@ function handleUnauthenticatedState() {
   }
 }
 
-// Invio Login Form
-loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const email = loginEmail.value.trim();
-  const password = loginPassword.value;
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = loginEmail.value.trim();
+    const password = loginPassword.value;
 
-  loginSubmitBtn.disabled = true;
-  loginSubmitBtn.textContent = 'Verifica in corso...';
-  authErrorMsg.style.display = 'none';
+    loginSubmitBtn.disabled = true;
+    loginSubmitBtn.textContent = 'Verifica in corso...';
+    if (authErrorMsg) authErrorMsg.style.display = 'none';
 
-  try {
-    const { data, error } = await supabaseClient.auth.signInWithPassword({
-      email,
-      password
-    });
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password
+      });
 
-    if (error) throw error;
+      if (error) throw error;
+      loginForm.reset();
+    } catch (err) {
+      if (authErrorMsg) {
+        authErrorMsg.textContent = err.message || 'Credenziali non corrette o utente non trovato.';
+        authErrorMsg.style.display = 'block';
+      }
+    } finally {
+      loginSubmitBtn.disabled = false;
+      loginSubmitBtn.textContent = 'Accedi';
+    }
+  });
+}
 
-    loginForm.reset();
-  } catch (err) {
-    authErrorMsg.textContent = err.message || 'Credenziali non corrette o utente non trovato.';
-    authErrorMsg.style.display = 'block';
-  } finally {
-    loginSubmitBtn.disabled = false;
-    loginSubmitBtn.textContent = 'Accedi';
-  }
-});
-
-// Logout
-logoutBtn.addEventListener('click', async () => {
-  if (confirm('Vuoi davvero disconnettere questo account?')) {
-    closeSettingsModal();
-    await supabaseClient.auth.signOut();
-  }
-});
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', async () => {
+    if (confirm('Vuoi davvero disconnettere questo account?')) {
+      closeSettingsModal();
+      await supabaseClient.auth.signOut();
+    }
+  });
+}
 
 // ----------------------------------------------------
 // REALTIME & DATI SUPABASE
@@ -278,6 +279,35 @@ async function syncItemToSupabase(item) {
   }
 }
 
+async function syncBatchItemsToSupabase(itemsArray) {
+  if (!supabaseClient || !currentUser || itemsArray.length === 0) return;
+
+  try {
+    const payload = itemsArray.map(item => ({
+      id: item.id,
+      title: item.title,
+      set_type: item.set,
+      category: item.category || 'Generale',
+      date: item.date || null,
+      number: item.number || null,
+      rating: item.rating !== undefined ? item.rating : null,
+      unplayed: Boolean(item.unplayed),
+      purchased: Boolean(item.purchased),
+      completed: Boolean(item.completed),
+      missing_gap_notice: item.missingGapNotice || null,
+      reading_chapter: item.readingChapter || null,
+      private_comment: item.privateComment || null
+    }));
+
+    const { error } = await supabaseClient.from('items').upsert(payload);
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error('Errore sync batch items:', err);
+    setCloudStatus('error');
+  }
+}
+
 async function deleteItemFromSupabase(id) {
   if (!supabaseClient || !currentUser) return;
 
@@ -355,7 +385,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
-// Elementi DOM
+// Elementi DOM Principali
 const contentList = document.getElementById('contentList');
 const categoryFilter = document.getElementById('categoryFilter');
 const setTabs = document.getElementById('setTabs');
@@ -377,7 +407,17 @@ const undoToast = document.getElementById('undoToast');
 const undoToastMsg = document.getElementById('undoToastMsg');
 const undoBtn = document.getElementById('undoBtn');
 
-// Modale Form
+// Sidebar Twitch Toggle
+const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+const twitchSidebar = document.getElementById('twitchSidebar');
+
+if (toggleSidebarBtn && twitchSidebar) {
+  toggleSidebarBtn.addEventListener('click', () => {
+    twitchSidebar.classList.toggle('collapsed');
+  });
+}
+
+// Modale Form Singolo
 const openModalBtn = document.getElementById('openModalBtn');
 const closeModalBtn = document.getElementById('closeModalBtn');
 const cancelBtn = document.getElementById('cancelBtn');
@@ -402,6 +442,20 @@ const categorySelect = document.getElementById('categorySelect');
 const newCategoryGroup = document.getElementById('newCategoryGroup');
 const newCategoryInput = document.getElementById('newCategoryInput');
 const existingTitlesList = document.getElementById('existingTitlesList');
+
+// Modale Form Batch (Blocco Volumi)
+const openBatchModalBtn = document.getElementById('openBatchModalBtn');
+const openBatchTopBtn = document.getElementById('openBatchTopBtn');
+const batchModalBackdrop = document.getElementById('batchModalBackdrop');
+const closeBatchModalBtn = document.getElementById('closeBatchModalBtn');
+const cancelBatchBtn = document.getElementById('cancelBatchBtn');
+const batchItemForm = document.getElementById('batchItemForm');
+const batchTitle = document.getElementById('batchTitle');
+const batchStartVol = document.getElementById('batchStartVol');
+const batchEndVol = document.getElementById('batchEndVol');
+const batchTargetSet = document.getElementById('batchTargetSet');
+const batchCategorySelect = document.getElementById('batchCategorySelect');
+const existingTitlesListBatch = document.getElementById('existingTitlesListBatch');
 
 // Scanner Barcode
 const startScanBtn = document.getElementById('startScanBtn');
@@ -555,11 +609,12 @@ toggleSortBtn.addEventListener('click', () => {
   renderList();
 });
 
+// Selezione Tab
 setTabs.addEventListener('click', (e) => {
-  const btn = e.target.closest('.segment-btn');
-  if (!btn) return;
+  const btn = e.target.closest('.nav-item-btn') || e.target.closest('.segment-btn');
+  if (!btn || !btn.dataset.set) return;
 
-  document.querySelectorAll('.segment-btn').forEach(b => {
+  document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
     b.classList.remove('active');
     b.setAttribute('aria-selected', 'false');
   });
@@ -807,7 +862,6 @@ function renderStandardLayout(items) {
   });
 }
 
-// Sincronizzazione automatica al check
 function syncPurchasedWithPosseduti(purchasedItem) {
   const purchasedNum = parseInt(purchasedItem.number, 10);
   const titleClean = purchasedItem.title.trim().toLowerCase();
@@ -908,6 +962,35 @@ function rollbackPurchasedFromPosseduti(uncheckItem) {
   saveData();
 }
 
+// Aggiornamento rapido capitolo (+1 / -1)
+async function updateChapterStep(itemId, delta) {
+  const item = appData.items.find(i => i.id === itemId);
+  if (!item) return;
+
+  const currentStr = String(item.readingChapter || '').trim();
+  const currentNumMatch = currentStr.match(/\d+/);
+  const currentVal = currentNumMatch ? parseInt(currentNumMatch[0], 10) : 0;
+  const nextVal = Math.max(0, currentVal + delta);
+
+  let updatedString = '';
+  if (currentStr && isNaN(Number(currentStr))) {
+    updatedString = currentStr.replace(/\d+/, String(nextVal));
+  } else {
+    updatedString = String(nextVal);
+  }
+
+  item.readingChapter = updatedString;
+
+  const card = document.querySelector(`.item-card[data-id="${itemId}"]`);
+  if (card) {
+    const valSpan = card.querySelector('.chapter-stepper-val');
+    if (valSpan) valSpan.textContent = updatedString || '0';
+  }
+
+  saveData();
+  await syncItemToSupabase(item);
+}
+
 function checkAndTriggerTodayNotifications() {
   if (!notificationsEnabled) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -998,6 +1081,7 @@ async function shareItemDetails(item) {
 
 function createItemCard(item, isCompact) {
   const card = document.createElement('div');
+  card.dataset.id = item.id;
   const catName = escapeHtml(item.category || 'Generale');
   const catColor = getCategoryColor(item.category || 'Generale');
   const dateInfo = getDateStatus(item.date);
@@ -1016,6 +1100,19 @@ function createItemCard(item, isCompact) {
           </svg>
         </div>
       </button>
+    `;
+  }
+
+  let chapterTrackerHtml = '';
+  if (item.set === 'Posseduti') {
+    const rawChap = item.readingChapter || '0';
+    chapterTrackerHtml = `
+      <div class="chapter-stepper-wrap" title="Avanzamento rapido capitolo letto">
+        <span class="chapter-stepper-label">Cap:</span>
+        <button type="button" class="chapter-step-btn step-minus" aria-label="Capitolo precedente">-</button>
+        <span class="chapter-stepper-val">${escapeHtml(rawChap)}</span>
+        <button type="button" class="chapter-step-btn step-plus" aria-label="Capitolo successivo">+</button>
+      </div>
     `;
   }
 
@@ -1072,6 +1169,7 @@ function createItemCard(item, isCompact) {
           ${completedHtml}
         </div>
         <span class="item-name">${escapeHtml(item.title)}</span>
+        ${chapterTrackerHtml}
       </div>
     </div>
 
@@ -1099,8 +1197,9 @@ function createItemCard(item, isCompact) {
     </div>
   `;
 
+  // Clic su card per aprire modale
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.check-btn') || e.target.closest('.icon-btn')) return;
+    if (e.target.closest('.check-btn') || e.target.closest('.icon-btn') || e.target.closest('.chapter-stepper-wrap')) return;
     if (item.set === 'Posseduti') {
       openOverviewModal(item);
     } else {
@@ -1108,6 +1207,7 @@ function createItemCard(item, isCompact) {
     }
   });
 
+  // Gestione check acquisto
   if (item.set === 'Acquisti') {
     card.querySelector('.check-btn').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1124,6 +1224,25 @@ function createItemCard(item, isCompact) {
 
       renderList();
     });
+  }
+
+  // Avanzamento capitolo da pulsanti
+  if (item.set === 'Posseduti') {
+    const stepMinus = card.querySelector('.step-minus');
+    const stepPlus = card.querySelector('.step-plus');
+
+    if (stepMinus) {
+      stepMinus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        updateChapterStep(item.id, -1);
+      });
+    }
+    if (stepPlus) {
+      stepPlus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        updateChapterStep(item.id, 1);
+      });
+    }
   }
 
   const nextBtn = card.querySelector('.next-btn');
@@ -1149,43 +1268,241 @@ function createItemCard(item, isCompact) {
     deleteItemWithUndo(item);
   });
 
+  // Integrazione gesture Swipe su mobile
+  attachSwipeListeners(card, item);
+
   return card;
 }
 
-// Scanner ISBN
-startScanBtn.addEventListener('click', () => {
-  scannerContainer.style.display = 'block';
-  scannerStatus.textContent = 'Avvio fotocamera in corso...';
+// Handler Swipe Touch Gestures
+function attachSwipeListeners(cardElement, item) {
+  let startX = 0;
+  let startY = 0;
+  let currentX = 0;
+  let isSwiping = false;
+  let isScrolling = false;
 
-  if (!html5QrCodeScanner) {
-    html5QrCodeScanner = new Html5Qrcode('scannerReader');
-  }
+  cardElement.addEventListener('touchstart', (e) => {
+    if (e.target.closest('.chapter-stepper-wrap') || e.target.closest('.icon-btn') || e.target.closest('.check-btn')) {
+      return;
+    }
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    isSwiping = true;
+    isScrolling = false;
+    cardElement.style.transition = 'none';
+  }, { passive: true });
 
-  html5QrCodeScanner.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 250, height: 150 } },
-    async (decodedText) => {
-      scannerStatus.textContent = `Trovato: ${decodedText}. Ricerca dati...`;
-      stopScanner();
-      await fetchBookDataByISBN(decodedText);
-    },
-    (errorMessage) => {}
-  ).catch(err => {
-    scannerStatus.textContent = 'Impossibile accedere alla fotocamera. Verifica i permessi.';
+  cardElement.addEventListener('touchmove', (e) => {
+    if (!isSwiping || isScrolling) return;
+
+    currentX = e.touches[0].clientX;
+    const diffX = currentX - startX;
+    const diffY = e.touches[0].clientY - startY;
+
+    if (Math.abs(diffY) > Math.abs(diffX) && Math.abs(diffX) < 10) {
+      isScrolling = true;
+      cardElement.style.transform = 'translateX(0)';
+      return;
+    }
+
+    if (Math.abs(diffX) > 10) {
+      cardElement.style.transform = `translateX(${diffX}px)`;
+
+      if (diffX > 60) {
+        cardElement.classList.add('swipe-complete');
+        cardElement.classList.remove('swipe-delete');
+      } else if (diffX < -60) {
+        cardElement.classList.add('swipe-delete');
+        cardElement.classList.remove('swipe-complete');
+      } else {
+        cardElement.classList.remove('swipe-complete', 'swipe-delete');
+      }
+    }
+  }, { passive: true });
+
+  cardElement.addEventListener('touchend', async () => {
+    if (!isSwiping || isScrolling) {
+      isSwiping = false;
+      return;
+    }
+    isSwiping = false;
+
+    const diffX = currentX - startX;
+    cardElement.style.transition = 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
+
+    if (diffX > 90) {
+      // Swipe Destra: Azione Positiva (Spunta acquisto o +1 capitolo)
+      cardElement.style.transform = 'translateX(0)';
+      if (item.set === 'Acquisti') {
+        item.purchased = !item.purchased;
+        saveData();
+        syncItemToSupabase(item);
+        if (item.purchased) syncPurchasedWithPosseduti(item);
+        else rollbackPurchasedFromPosseduti(item);
+        renderList();
+      } else if (item.set === 'Posseduti') {
+        updateChapterStep(item.id, 1);
+      }
+    } else if (diffX < -90) {
+      // Swipe Sinistra: Elimina
+      cardElement.style.transform = 'translateX(0)';
+      deleteItemWithUndo(item);
+    } else {
+      cardElement.style.transform = 'translateX(0)';
+    }
+
+    cardElement.classList.remove('swipe-complete', 'swipe-delete');
+    startX = 0;
+    currentX = 0;
   });
-});
+}
+
+// Inserimento a Intervallo (Batch Range)
+function openBatchModal() {
+  batchItemForm.reset();
+  batchStartVol.value = 1;
+  batchEndVol.value = 10;
+  batchTargetSet.value = (activeSet === 'Posseduti' || activeSet === 'Acquisti') ? activeSet : 'Posseduti';
+
+  batchCategorySelect.innerHTML = '';
+  appData.categories.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    if (cat === activeCategory && activeCategory !== 'Tutte') opt.selected = true;
+    batchCategorySelect.appendChild(opt);
+  });
+
+  const uniqueTitles = [...new Set(appData.items.map(i => i.title))];
+  existingTitlesListBatch.innerHTML = '';
+  uniqueTitles.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    existingTitlesListBatch.appendChild(opt);
+  });
+
+  batchModalBackdrop.classList.add('active');
+  batchTitle.focus();
+}
+
+function closeBatchModal() {
+  batchModalBackdrop.classList.remove('active');
+  batchItemForm.reset();
+}
+
+if (openBatchModalBtn) openBatchModalBtn.addEventListener('click', openBatchModal);
+if (openBatchTopBtn) openBatchTopBtn.addEventListener('click', openBatchModal);
+if (closeBatchModalBtn) closeBatchModalBtn.addEventListener('click', closeBatchModal);
+if (cancelBatchBtn) cancelBatchBtn.addEventListener('click', closeBatchModal);
+
+if (batchModalBackdrop) {
+  batchModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === batchModalBackdrop) closeBatchModal();
+  });
+}
+
+if (batchItemForm) {
+  batchItemForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const title = batchTitle.value.trim();
+    const start = parseInt(batchStartVol.value, 10);
+    const end = parseInt(batchEndVol.value, 10);
+    const set = batchTargetSet.value;
+    const cat = batchCategorySelect.value || 'Generale';
+
+    if (!title) {
+      alert('Inserisci un titolo per la serie.');
+      return;
+    }
+    if (isNaN(start) || isNaN(end) || start > end) {
+      alert('Intervallo non valido: il volume iniziale deve essere minore o uguale al volume finale.');
+      return;
+    }
+    if (end - start > 150) {
+      alert('Per motivi di prestazioni, puoi creare al massimo 150 volumi alla volta.');
+      return;
+    }
+
+    const createdItems = [];
+    for (let v = start; v <= end; v++) {
+      createdItems.push({
+        id: generateUniqueId(),
+        title: title,
+        set: set,
+        category: cat,
+        date: null,
+        number: String(v),
+        rating: null,
+        unplayed: false,
+        purchased: set === 'Posseduti',
+        completed: false,
+        missingGapNotice: null,
+        readingChapter: '',
+        privateComment: ''
+      });
+    }
+
+    appData.items.unshift(...createdItems);
+    saveData();
+    closeBatchModal();
+
+    await syncBatchItemsToSupabase(createdItems);
+
+    showToastNotice(`Aggiunti ${createdItems.length} volumi di "${title}"!`);
+
+    if (activeSet !== set) {
+      activeSet = set;
+      localStorage.setItem('pref_set', activeSet);
+      document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
+        const isSelected = b.dataset.set === set;
+        b.classList.toggle('active', isSelected);
+        b.setAttribute('aria-selected', String(isSelected));
+      });
+      updateFilterBarChips();
+    }
+
+    renderList();
+  });
+}
+
+// Scanner ISBN
+if (startScanBtn) {
+  startScanBtn.addEventListener('click', () => {
+    scannerContainer.style.display = 'block';
+    scannerStatus.textContent = 'Avvio fotocamera in corso...';
+
+    if (!html5QrCodeScanner) {
+      html5QrCodeScanner = new Html5Qrcode('scannerReader');
+    }
+
+    html5QrCodeScanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 150 } },
+      async (decodedText) => {
+        scannerStatus.textContent = `Trovato: ${decodedText}. Ricerca dati...`;
+        stopScanner();
+        await fetchBookDataByISBN(decodedText);
+      },
+      (errorMessage) => {}
+    ).catch(err => {
+      scannerStatus.textContent = 'Impossibile accedere alla fotocamera. Verifica i permessi.';
+    });
+  });
+}
 
 function stopScanner() {
   if (html5QrCodeScanner) {
     html5QrCodeScanner.stop().catch(() => {}).then(() => {
-      scannerContainer.style.display = 'none';
+      if (scannerContainer) scannerContainer.style.display = 'none';
     });
   } else {
-    scannerContainer.style.display = 'none';
+    if (scannerContainer) scannerContainer.style.display = 'none';
   }
 }
 
-closeScannerBtn.addEventListener('click', stopScanner);
+if (closeScannerBtn) closeScannerBtn.addEventListener('click', stopScanner);
 
 async function fetchBookDataByISBN(isbn) {
   try {
@@ -1215,54 +1532,58 @@ async function fetchBookDataByISBN(isbn) {
 }
 
 // Statistiche
-openStatsBtn.addEventListener('click', () => {
-  const allItems = appData.items;
-  const ownedItems = allItems.filter(i => i.set === 'Posseduti');
-  const scoredItems = allItems.filter(i => i.set === 'Voti' && !i.unplayed && i.rating !== null && i.rating !== undefined);
-  const gapsCount = ownedItems.filter(i => Boolean(i.missingGapNotice)).length;
+if (openStatsBtn) {
+  openStatsBtn.addEventListener('click', () => {
+    const allItems = appData.items;
+    const ownedItems = allItems.filter(i => i.set === 'Posseduti');
+    const scoredItems = allItems.filter(i => i.set === 'Voti' && !i.unplayed && i.rating !== null && i.rating !== undefined);
+    const gapsCount = ownedItems.filter(i => Boolean(i.missingGapNotice)).length;
 
-  statTotalItems.textContent = allItems.length;
-  statTotalOwned.textContent = ownedItems.length;
+    statTotalItems.textContent = allItems.length;
+    statTotalOwned.textContent = ownedItems.length;
 
-  if (scoredItems.length > 0) {
-    const avg = Math.round(scoredItems.reduce((acc, curr) => acc + curr.rating, 0) / scoredItems.length);
-    statAverageRating.textContent = `${avg}/100`;
-  } else {
-    statAverageRating.textContent = '-';
-  }
+    if (scoredItems.length > 0) {
+      const avg = Math.round(scoredItems.reduce((acc, curr) => acc + curr.rating, 0) / scoredItems.length);
+      statAverageRating.textContent = `${avg}/100`;
+    } else {
+      statAverageRating.textContent = '-';
+    }
 
-  if (ownedItems.length > 0) {
-    const completeRate = Math.round(((ownedItems.length - gapsCount) / ownedItems.length) * 100);
-    statCompleteRate.textContent = `${completeRate}%`;
-  } else {
-    statCompleteRate.textContent = '100%';
-  }
+    if (ownedItems.length > 0) {
+      const completeRate = Math.round(((ownedItems.length - gapsCount) / ownedItems.length) * 100);
+      statCompleteRate.textContent = `${completeRate}%`;
+    } else {
+      statCompleteRate.textContent = '100%';
+    }
 
-  statsCatList.innerHTML = '';
-  const catCounts = {};
-  appData.categories.forEach(c => catCounts[c] = 0);
-  ownedItems.forEach(i => {
-    const c = i.category || 'Generale';
-    catCounts[c] = (catCounts[c] || 0) + 1;
+    statsCatList.innerHTML = '';
+    const catCounts = {};
+    appData.categories.forEach(c => catCounts[c] = 0);
+    ownedItems.forEach(i => {
+      const c = i.category || 'Generale';
+      catCounts[c] = (catCounts[c] || 0) + 1;
+    });
+
+    Object.entries(catCounts).forEach(([cat, count]) => {
+      const row = document.createElement('div');
+      row.className = 'stat-cat-row';
+      row.innerHTML = `
+        <span style="color: ${getCategoryColor(cat)}; font-weight: 600;">${escapeHtml(cat)}</span>
+        <span style="font-weight: 700;">${count} vol.</span>
+      `;
+      statsCatList.appendChild(row);
+    });
+
+    statsModalBackdrop.classList.add('active');
   });
+}
 
-  Object.entries(catCounts).forEach(([cat, count]) => {
-    const row = document.createElement('div');
-    row.className = 'stat-cat-row';
-    row.innerHTML = `
-      <span style="color: ${getCategoryColor(cat)}; font-weight: 600;">${escapeHtml(cat)}</span>
-      <span style="font-weight: 700;">${count} vol.</span>
-    `;
-    statsCatList.appendChild(row);
+if (closeStatsBtn) closeStatsBtn.addEventListener('click', () => statsModalBackdrop.classList.remove('active'));
+if (statsModalBackdrop) {
+  statsModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === statsModalBackdrop) statsModalBackdrop.classList.remove('active');
   });
-
-  statsModalBackdrop.classList.add('active');
-});
-
-closeStatsBtn.addEventListener('click', () => statsModalBackdrop.classList.remove('active'));
-statsModalBackdrop.addEventListener('click', (e) => {
-  if (e.target === statsModalBackdrop) statsModalBackdrop.classList.remove('active');
-});
+}
 
 // Panoramica Posseduti
 function openOverviewModal(item) {
@@ -1291,33 +1612,39 @@ function closeOverviewModal() {
   currentOverviewItemId = null;
 }
 
-closeOverviewBtn.addEventListener('click', closeOverviewModal);
+if (closeOverviewBtn) closeOverviewBtn.addEventListener('click', closeOverviewModal);
+if (overviewModalBackdrop) {
+  overviewModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === overviewModalBackdrop) closeOverviewModal();
+  });
+}
 
-overviewModalBackdrop.addEventListener('click', (e) => {
-  if (e.target === overviewModalBackdrop) closeOverviewModal();
-});
+if (saveOverviewDetailsBtn) {
+  saveOverviewDetailsBtn.addEventListener('click', () => {
+    if (!currentOverviewItemId) return;
+    const item = appData.items.find(i => i.id === currentOverviewItemId);
+    if (item) {
+      item.readingChapter = overviewReadingProgressInput.value.trim();
+      item.privateComment = overviewCommentInput.value.trim();
+      saveData();
+      syncItemToSupabase(item);
+      closeOverviewModal();
+      renderList();
+      showToastNotice(`Panoramica di "${item.title}" salvata!`);
+    }
+  });
+}
 
-saveOverviewDetailsBtn.addEventListener('click', () => {
-  if (!currentOverviewItemId) return;
-  const item = appData.items.find(i => i.id === currentOverviewItemId);
-  if (item) {
-    item.readingChapter = overviewReadingProgressInput.value.trim();
-    item.privateComment = overviewCommentInput.value.trim();
-    saveData();
-    syncItemToSupabase(item);
-    closeOverviewModal();
-    showToastNotice(`Panoramica di "${item.title}" salvata!`);
-  }
-});
-
-overviewEditFullBtn.addEventListener('click', () => {
-  if (!currentOverviewItemId) return;
-  const item = appData.items.find(i => i.id === currentOverviewItemId);
-  if (item) {
-    closeOverviewModal();
-    openEditModal(item);
-  }
-});
+if (overviewEditFullBtn) {
+  overviewEditFullBtn.addEventListener('click', () => {
+    if (!currentOverviewItemId) return;
+    const item = appData.items.find(i => i.id === currentOverviewItemId);
+    if (item) {
+      closeOverviewModal();
+      openEditModal(item);
+    }
+  });
+}
 
 function deleteItemWithUndo(item) {
   deletedItemBuffer = { ...item };
@@ -1337,17 +1664,19 @@ function deleteItemWithUndo(item) {
   }, 5000);
 }
 
-undoBtn.addEventListener('click', () => {
-  if (deletedItemBuffer) {
-    appData.items.unshift(deletedItemBuffer);
-    saveData();
-    syncItemToSupabase(deletedItemBuffer);
-    renderList();
-    deletedItemBuffer = null;
-    undoToast.classList.remove('show');
-    if (undoTimeoutId) clearTimeout(undoTimeoutId);
-  }
-});
+if (undoBtn) {
+  undoBtn.addEventListener('click', () => {
+    if (deletedItemBuffer) {
+      appData.items.unshift(deletedItemBuffer);
+      saveData();
+      syncItemToSupabase(deletedItemBuffer);
+      renderList();
+      deletedItemBuffer = null;
+      undoToast.classList.remove('show');
+      if (undoTimeoutId) clearTimeout(undoTimeoutId);
+    }
+  });
+}
 
 function createNextVolume(item) {
   const currentNum = parseInt(item.number, 10);
@@ -1597,7 +1926,7 @@ itemForm.addEventListener('submit', (e) => {
   if (activeSet !== set) {
     activeSet = set;
     localStorage.setItem('pref_set', activeSet);
-    document.querySelectorAll('.segment-btn').forEach(b => {
+    document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
       const isSelected = b.dataset.set === set;
       b.classList.toggle('active', isSelected);
       b.setAttribute('aria-selected', String(isSelected));
@@ -1608,15 +1937,16 @@ itemForm.addEventListener('submit', (e) => {
   renderList();
 });
 
-// Scorciatoie tastiera
+// Scorciatoie da tastiera
 window.addEventListener('keydown', (e) => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     if (e.key === 'Escape') {
       document.activeElement.blur();
       closeModal();
+      closeBatchModal();
       closeOverviewModal();
       closeSettingsModal();
-      statsModalBackdrop.classList.remove('active');
+      if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
     }
     return;
   }
@@ -1624,18 +1954,22 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'n' || e.key === 'N') {
     e.preventDefault();
     openCreateModal();
+  } else if (e.key === 'b' || e.key === 'B') {
+    e.preventDefault();
+    openBatchModal();
   } else if (e.key === '/') {
     e.preventDefault();
     seriesSearchInput.focus();
   } else if (e.key === 'Escape') {
     closeModal();
+    closeBatchModal();
     closeOverviewModal();
     closeSettingsModal();
-    statsModalBackdrop.classList.remove('active');
+    if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
   }
 });
 
-// Impostazioni
+// Sotto-viste Impostazioni
 function showSettingsView(viewName) {
   settingsMainView.style.display = (viewName === 'main') ? 'block' : 'none';
   settingsAccountView.style.display = (viewName === 'account') ? 'block' : 'none';
@@ -1816,7 +2150,7 @@ confirmExportBtn.addEventListener('click', () => {
     }));
 
   const exportPayload = {
-    appVersion: '3.9',
+    appVersion: '4.0',
     exportedAt: new Date().toISOString(),
     exportedBySet: selectedSets,
     categoriesList: appData.categories,
@@ -1958,7 +2292,7 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
 });
 
 function initApp() {
-  document.querySelectorAll('.segment-btn').forEach(b => {
+  document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
     const isSelected = b.dataset.set === activeSet;
     b.classList.toggle('active', isSelected);
     b.setAttribute('aria-selected', String(isSelected));
@@ -1977,6 +2311,6 @@ function initApp() {
   renderList();
 }
 
-// Avvio applicazione con controllo autenticazione
+// Avvio sequenziale
 initApp();
 initAuthAndApp();
