@@ -257,7 +257,6 @@ async function syncItemToSupabase(item) {
   try {
     const payload = {
       id: Number(item.id),
-      user_id: currentUser.id, // Obbligatorio se RLS è attivo
       title: item.title,
       set_type: item.set,
       category: item.category || 'Generale',
@@ -274,10 +273,7 @@ async function syncItemToSupabase(item) {
 
     const { error } = await supabaseClient.from('items').upsert(payload);
 
-    if (error) {
-      console.error(`Errore Supabase su item #${item.id}:`, error.message, error.details);
-      throw error;
-    }
+    if (error) throw error;
     setCloudStatus('online');
   } catch (err) {
     console.error(`Errore sync item #${item.id}:`, err);
@@ -290,13 +286,13 @@ async function syncBatchItemsToSupabase(itemsArray) {
 
   try {
     const payload = itemsArray.map(item => ({
-      id: item.id,
+      id: Number(item.id),
       title: item.title,
       set_type: item.set,
       category: item.category || 'Generale',
       date: item.date || null,
-      number: item.number || null,
-      rating: item.rating !== undefined ? item.rating : null,
+      number: item.number ? String(item.number) : null,
+      rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
       completed: Boolean(item.completed),
