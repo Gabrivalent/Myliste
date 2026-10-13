@@ -46,7 +46,6 @@ function setCloudStatus(status) {
   }
 }
 
-// Generatore ID univoco sicuro
 function generateUniqueId() {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     const array = new Uint32Array(1);
@@ -150,7 +149,7 @@ if (logoutBtn) {
 }
 
 // ----------------------------------------------------
-// REALTIME & DATI SUPABASE
+// REALTIME & DATI SUPABASE (SENZA user_id)
 // ----------------------------------------------------
 function setupRealtimeSubscriptions() {
   if (!supabaseClient || !currentUser) return;
@@ -213,6 +212,8 @@ function formatRowToItem(row) {
     unplayed: Boolean(row.unplayed),
     purchased: Boolean(row.purchased),
     completed: Boolean(row.completed),
+    isRead: Boolean(row.is_read),
+    isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
     missingGapNotice: row.missing_gap_notice,
     readingChapter: row.reading_chapter || '',
     privateComment: row.private_comment || ''
@@ -266,13 +267,13 @@ async function syncItemToSupabase(item) {
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
       completed: Boolean(item.completed),
+      is_read: Boolean(item.isRead),
       missing_gap_notice: item.missingGapNotice || null,
       reading_chapter: item.readingChapter || null,
       private_comment: item.privateComment || null
     };
 
     const { error } = await supabaseClient.from('items').upsert(payload);
-
     if (error) throw error;
     setCloudStatus('online');
   } catch (err) {
@@ -296,6 +297,7 @@ async function syncBatchItemsToSupabase(itemsArray) {
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
       completed: Boolean(item.completed),
+      is_read: Boolean(item.isRead),
       missing_gap_notice: item.missingGapNotice || null,
       reading_chapter: item.readingChapter || null,
       private_comment: item.privateComment || null
@@ -338,7 +340,7 @@ async function syncCategoriesToSupabase() {
 }
 
 // ----------------------------------------------------
-// STATO APPLICAZIONE LOCALE
+// STATO APPLICAZIONE LOCALE & SISTEMA UNDO / REDO
 // ----------------------------------------------------
 const DEFAULT_DATA = {
   categories: ['Generale', 'Manga', 'Comics', 'Libri', 'Videogiochi'],
@@ -351,6 +353,10 @@ appData.items.forEach(item => {
   if (typeof item.purchased === 'undefined') item.purchased = false;
   if (typeof item.unplayed === 'undefined') item.unplayed = false;
   if (typeof item.completed === 'undefined') item.completed = false;
+  if (typeof item.isRead === 'undefined') item.isRead = false;
+  if (typeof item.isVariant === 'undefined') {
+    item.isVariant = Boolean(item.number && String(item.number).toLowerCase().includes('variant'));
+  }
   if (typeof item.readingChapter === 'undefined') item.readingChapter = '';
   if (typeof item.privateComment === 'undefined') item.privateComment = '';
   if (item.rating && item.rating <= 5) item.rating = item.rating * 20;
@@ -359,7 +365,23 @@ appData.items.forEach(item => {
 let activeSet = localStorage.getItem('pref_set') || 'Acquisti';
 let activeCategory = localStorage.getItem('pref_category') || 'Generale';
 let activeTimeFilter = localStorage.getItem('pref_time_filter') || 'all';
-let currentSortMode = localStorage.getItem('pref_sort_mode') || 'date';
+
+let setSortModes = JSON.parse(localStorage.getItem('pref_set_sort_modes')) || {
+  Acquisti: 'date',
+  Posseduti: 'name',
+  Voti: 'number',
+  Liste: 'name'
+};
+
+function getCurrentSortMode() {
+  return setSortModes[activeSet] || 'date';
+}
+
+function setCurrentSortMode(mode) {
+  setSortModes[activeSet] = mode;
+  localStorage.setItem('pref_set_sort_modes', JSON.stringify(setSortModes));
+}
+
 let isPurchasedSectionOpen = localStorage.getItem('pref_purchased_open') === 'true';
 let notificationsEnabled = localStorage.getItem('pref_notifications') === 'true';
 
@@ -367,7 +389,96 @@ let searchSeriesQuery = '';
 let deletedItemBuffer = null;
 let undoTimeoutId = null;
 let currentOverviewItemId = null;
+
 let html5QrCodeScanner = null;
+let checkerScanner = null;
+let lastDetectedCheckItem = null;
+
+const historyUndoStack = [];
+const historyRedoStack = [];
+const MAX_HISTORY_STEPS = 35;
+
+function pushHistoryAction(action) {
+  historyUndoStack.push(action);
+  if (historyUndoStack.length > MAX_HISTORY_STEPS) {
+    historyUndoStack.shift();
+  }
+  historyRedoStack.length = 0;
+  updateHistoryButtonsUI();
+}
+
+function updateHistoryButtonsUI() {
+  const undoBtnElem = document.getElementById('historyUndoBtn');
+  const redoBtnElem = document.getElementById('historyRedoBtn');
+  if (undoBtnElem) undoBtnElem.disabled = historyUndoStack.length === 0;
+  if (redoBtnElem) redoBtnElem.disabled = historyRedoStack.length === 0;
+}
+
+async function executeUndo() {
+  if (historyUndoStack.length === 0) return;
+  const action = historyUndoStack.pop();
+
+  if (action.type === 'INSERT') {
+    const ids = Array.isArray(action.data) ? action.data.map(i => i.id) : [action.data.id];
+    appData.items = appData.items.filter(i => !ids.includes(i.id));
+    saveData();
+    for (const id of ids) {
+      await deleteItemFromSupabase(id);
+    }
+    showToastNotice('Creazione annullata');
+  } else if (action.type === 'DELETE') {
+    appData.items.unshift(action.data);
+    saveData();
+    await syncItemToSupabase(action.data);
+    showToastNotice(`Ripristinato "${action.data.title}"`);
+  } else if (action.type === 'UPDATE') {
+    const idx = appData.items.findIndex(i => i.id === action.prev.id);
+    if (idx !== -1) {
+      appData.items[idx] = { ...action.prev };
+      saveData();
+      await syncItemToSupabase(appData.items[idx]);
+      showToastNotice(`Modifica annullata per "${action.prev.title}"`);
+    }
+  }
+
+  historyRedoStack.push(action);
+  updateHistoryButtonsUI();
+  renderList();
+}
+
+async function executeRedo() {
+  if (historyRedoStack.length === 0) return;
+  const action = historyRedoStack.pop();
+
+  if (action.type === 'INSERT') {
+    const items = Array.isArray(action.data) ? action.data : [action.data];
+    items.forEach(it => appData.items.unshift(it));
+    saveData();
+    if (Array.isArray(action.data)) {
+      await syncBatchItemsToSupabase(items);
+    } else {
+      await syncItemToSupabase(items[0]);
+    }
+    showToastNotice('Creazione riapplicata');
+  } else if (action.type === 'DELETE') {
+    appData.items = appData.items.filter(i => i.id !== action.data.id);
+    saveData();
+    await deleteItemFromSupabase(action.data.id);
+    showToastNotice(`Eliminato "${action.data.title}"`);
+  } else if (action.type === 'UPDATE') {
+    const idx = appData.items.findIndex(i => i.id === action.next.id);
+    if (idx !== -1) {
+      appData.items[idx] = { ...action.next };
+      saveData();
+      await syncItemToSupabase(appData.items[idx]);
+      showToastNotice(`Modifica ripristinata per "${action.next.title}"`);
+    }
+  }
+
+  historyUndoStack.push(action);
+  updateHistoryButtonsUI();
+  renderList();
+}
 
 const SORT_LABELS = {
   date: 'Per Data',
@@ -385,6 +496,15 @@ function getCategoryColor(catName) {
   }
   const index = Math.abs(hash) % CATEGORY_COLORS.length;
   return CATEGORY_COLORS[index];
+}
+
+if (window.DeviceOrientationEvent) {
+  window.addEventListener('deviceorientation', (event) => {
+    if (event.gamma !== null) {
+      const angle = Math.round(135 + (event.gamma * 1.5));
+      document.documentElement.style.setProperty('--foil-angle', `${angle}deg`);
+    }
+  }, { passive: true });
 }
 
 // Elementi DOM Principali
@@ -409,7 +529,12 @@ const undoToast = document.getElementById('undoToast');
 const undoToastMsg = document.getElementById('undoToastMsg');
 const undoBtn = document.getElementById('undoBtn');
 
-// Sidebar Twitch Toggle
+const historyUndoBtn = document.getElementById('historyUndoBtn');
+const historyRedoBtn = document.getElementById('historyRedoBtn');
+
+if (historyUndoBtn) historyUndoBtn.addEventListener('click', executeUndo);
+if (historyRedoBtn) historyRedoBtn.addEventListener('click', executeRedo);
+
 const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
 const twitchSidebar = document.getElementById('twitchSidebar');
 
@@ -418,6 +543,13 @@ if (toggleSidebarBtn && twitchSidebar) {
     twitchSidebar.classList.toggle('collapsed');
   });
 }
+
+// Modale Manga Spine Shelf 3D
+const shelfModalBackdrop = document.getElementById('shelfModalBackdrop');
+const closeShelfModalBtn = document.getElementById('closeShelfModalBtn');
+const shelfSeriesTitle = document.getElementById('shelfSeriesTitle');
+const shelfCategoryTag = document.getElementById('shelfCategoryTag');
+const shelfSpineContainer = document.getElementById('shelfSpineContainer');
 
 // Modale Form Singolo
 const openModalBtn = document.getElementById('openModalBtn');
@@ -434,8 +566,10 @@ const purchasesFields = document.getElementById('purchasesFields');
 const dateGroupWrapper = document.getElementById('dateGroupWrapper');
 const itemDate = document.getElementById('itemDate');
 const itemNumber = document.getElementById('itemNumber');
+const itemVariantCheckbox = document.getElementById('itemVariantCheckbox');
 const completedGroupWrapper = document.getElementById('completedGroupWrapper');
 const itemCompletedCheckbox = document.getElementById('itemCompletedCheckbox');
+const itemReadCheckbox = document.getElementById('itemReadCheckbox');
 const ratingInputGroup = document.getElementById('ratingInputGroup');
 const itemScoreInput = document.getElementById('itemScoreInput');
 const itemUnplayedCheckbox = document.getElementById('itemUnplayedCheckbox');
@@ -445,7 +579,7 @@ const newCategoryGroup = document.getElementById('newCategoryGroup');
 const newCategoryInput = document.getElementById('newCategoryInput');
 const existingTitlesList = document.getElementById('existingTitlesList');
 
-// Modale Form Batch (Blocco Volumi)
+// Modale Form Batch
 const openBatchModalBtn = document.getElementById('openBatchModalBtn');
 const openBatchTopBtn = document.getElementById('openBatchTopBtn');
 const batchModalBackdrop = document.getElementById('batchModalBackdrop');
@@ -459,7 +593,20 @@ const batchTargetSet = document.getElementById('batchTargetSet');
 const batchCategorySelect = document.getElementById('batchCategorySelect');
 const existingTitlesListBatch = document.getElementById('existingTitlesListBatch');
 
-// Scanner Barcode
+// Modale Verifica Barcode
+const openCheckerScanBtn = document.getElementById('openCheckerScanBtn');
+const openCheckerTopBtn = document.getElementById('openCheckerTopBtn');
+const checkerModalBackdrop = document.getElementById('checkerModalBackdrop');
+const closeCheckerModalBtn = document.getElementById('closeCheckerModalBtn');
+const checkerResultBox = document.getElementById('checkerResultBox');
+const checkerSignalIcon = document.getElementById('checkerSignalIcon');
+const checkerStatusTitle = document.getElementById('checkerStatusTitle');
+const checkerStatusDesc = document.getElementById('checkerStatusDesc');
+const checkerResetBtn = document.getElementById('checkerResetBtn');
+const checkerAddToAcquistiBtn = document.getElementById('checkerAddToAcquistiBtn');
+const checkerAddToPossedutiBtn = document.getElementById('checkerAddToPossedutiBtn');
+
+// Scanner ISBN nel Form
 const startScanBtn = document.getElementById('startScanBtn');
 const scannerContainer = document.getElementById('scannerContainer');
 const closeScannerBtn = document.getElementById('closeScannerBtn');
@@ -602,16 +749,16 @@ categoryFilter.addEventListener('change', (e) => {
 });
 
 toggleSortBtn.addEventListener('click', () => {
-  if (currentSortMode === 'date') currentSortMode = 'name';
-  else if (currentSortMode === 'name') currentSortMode = 'number';
-  else currentSortMode = 'date';
+  let mode = getCurrentSortMode();
+  if (mode === 'date') mode = 'name';
+  else if (mode === 'name') mode = 'number';
+  else mode = 'date';
 
-  localStorage.setItem('pref_sort_mode', currentSortMode);
-  sortIndicatorText.textContent = SORT_LABELS[currentSortMode];
+  setCurrentSortMode(mode);
+  sortIndicatorText.textContent = SORT_LABELS[mode];
   renderList();
 });
 
-// Selezione Tab
 setTabs.addEventListener('click', (e) => {
   const btn = e.target.closest('.nav-item-btn') || e.target.closest('.segment-btn');
   if (!btn || !btn.dataset.set) return;
@@ -625,6 +772,8 @@ setTabs.addEventListener('click', (e) => {
   btn.setAttribute('aria-selected', 'true');
   activeSet = btn.dataset.set;
   localStorage.setItem('pref_set', activeSet);
+
+  sortIndicatorText.textContent = SORT_LABELS[getCurrentSortMode()] || 'Per Data';
 
   updateFilterBarChips();
   renderList();
@@ -731,6 +880,8 @@ function matchesActiveFilter(item) {
 }
 
 function sortItems(itemsArray) {
+  const currentSortMode = getCurrentSortMode();
+
   return [...itemsArray].sort((a, b) => {
     if (currentSortMode === 'name') {
       return a.title.localeCompare(b.title);
@@ -759,7 +910,6 @@ function renderList() {
 
   let filtered = appData.items.filter(item => item.set === activeSet);
 
-  // Se è "Generale" o "Tutte", NON filtra per categoria e mostra tutti i volumi
   if (activeCategory !== 'Tutte' && activeCategory !== 'Generale') {
     filtered = filtered.filter(item => item.category === activeCategory);
   }
@@ -811,7 +961,7 @@ function renderPurchasesLayout(items) {
     return;
   }
 
-  if (currentSortMode !== 'date') {
+  if (getCurrentSortMode() !== 'date') {
     sortItems(activeItems).forEach(item => {
       contentList.appendChild(createItemCard(item, false));
     });
@@ -860,8 +1010,17 @@ function renderStandardLayout(items) {
     contentList.innerHTML = `<div class="empty-state-box">Nessun elemento presente in "${activeSet}".</div>`;
     return;
   }
-  sortItems(filtered).forEach(item => {
-    contentList.appendChild(createItemCard(item, false));
+
+  const sorted = sortItems(filtered);
+
+  sorted.forEach((item, index) => {
+    let medal = null;
+    if (activeSet === 'Voti' && !item.unplayed && item.rating !== null) {
+      if (index === 0) medal = '🥇';
+      else if (index === 1) medal = '🥈';
+      else if (index === 2) medal = '🥉';
+    }
+    contentList.appendChild(createItemCard(item, false, medal));
   });
 }
 
@@ -888,6 +1047,8 @@ function syncPurchasedWithPosseduti(purchasedItem) {
       unplayed: false,
       purchased: false,
       completed: Boolean(purchasedItem.completed),
+      isRead: false,
+      isVariant: Boolean(purchasedItem.isVariant),
       autoGeneratedFromPurchase: true,
       missingGapNotice: null,
       readingChapter: '',
@@ -943,14 +1104,14 @@ function rollbackPurchasedFromPosseduti(uncheckItem) {
   if (existingPosseduto.autoGeneratedFromPurchase && (existingPosseduto.number === uncheckItem.number)) {
     appData.items = appData.items.filter(i => i.id !== existingPosseduto.id);
     deleteItemFromSupabase(existingPosseduto.id);
-    showToastNotice(`"${uncheckItem.title}" rimosso da Posseduti (errore annullato)`);
+    showToastNotice(`"${uncheckItem.title}" rimosso da Posseduti`);
   } else if (!isNaN(uncheckNum) && !isNaN(currentOwnedNum) && currentOwnedNum === uncheckNum) {
     const previousNum = currentOwnedNum - 1;
     if (previousNum > 0) {
       existingPosseduto.number = String(previousNum);
       existingPosseduto.missingGapNotice = null;
       syncItemToSupabase(existingPosseduto);
-      showToastNotice(`Posseduti scalato: ${existingPosseduto.title} tornato al Vol. #${previousNum}`);
+      showToastNotice(`Posseduti: ${existingPosseduto.title} tornato al Vol. #${previousNum}`);
     } else {
       appData.items = appData.items.filter(i => i.id !== existingPosseduto.id);
       deleteItemFromSupabase(existingPosseduto.id);
@@ -959,17 +1120,16 @@ function rollbackPurchasedFromPosseduti(uncheckItem) {
   } else if (existingPosseduto.missingGapNotice) {
     existingPosseduto.missingGapNotice = null;
     syncItemToSupabase(existingPosseduto);
-    showToastNotice(`Avviso volumi mancanti rimosso per "${existingPosseduto.title}"`);
   }
 
   saveData();
 }
 
-// Aggiornamento rapido capitolo (+1 / -1)
 async function updateChapterStep(itemId, delta) {
   const item = appData.items.find(i => i.id === itemId);
   if (!item) return;
 
+  const prev = { ...item };
   const currentStr = String(item.readingChapter || '').trim();
   const currentNumMatch = currentStr.match(/\d+/);
   const currentVal = currentNumMatch ? parseInt(currentNumMatch[0], 10) : 0;
@@ -983,6 +1143,7 @@ async function updateChapterStep(itemId, delta) {
   }
 
   item.readingChapter = updatedString;
+  pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
 
   const card = document.querySelector(`.item-card[data-id="${itemId}"]`);
   if (card) {
@@ -992,6 +1153,39 @@ async function updateChapterStep(itemId, delta) {
 
   saveData();
   await syncItemToSupabase(item);
+}
+
+// STEPPER RAPIDO NUMERO VOLUME (+1 / -1) IN POSSEDUTI
+async function updateVolumeStep(itemId, delta) {
+  const item = appData.items.find(i => i.id === itemId);
+  if (!item) return;
+
+  const prev = { ...item };
+  const currentNum = parseInt(item.number || '0', 10);
+  const nextNum = Math.max(1, (isNaN(currentNum) ? 0 : currentNum) + delta);
+
+  item.number = String(nextNum);
+  pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
+
+  saveData();
+  await syncItemToSupabase(item);
+  renderList();
+  showToastNotice(`"${item.title}" aggiornato al Vol. #${nextNum}`);
+}
+
+// TOGGLE STATO "LETTO"
+async function toggleReadStatus(itemId) {
+  const item = appData.items.find(i => i.id === itemId);
+  if (!item) return;
+
+  const prev = { ...item };
+  item.isRead = !item.isRead;
+  pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
+
+  saveData();
+  await syncItemToSupabase(item);
+  renderList();
+  showToastNotice(item.isRead ? `Segnato come LETTO` : `Segnato come NON LETTO`);
 }
 
 function checkAndTriggerTodayNotifications() {
@@ -1082,16 +1276,27 @@ async function shareItemDetails(item) {
   }
 }
 
-function createItemCard(item, isCompact) {
+function getScoreBadgeClass(rating) {
+  if (rating >= 95) return 'score-top';
+  if (rating >= 85) return 'score-high';
+  if (rating >= 75) return 'score-good';
+  if (rating >= 60) return 'score-mid';
+  return 'score-low';
+}
+
+function createItemCard(item, isCompact, medalIcon = null) {
   const card = document.createElement('div');
   card.dataset.id = item.id;
   const catName = escapeHtml(item.category || 'Generale');
   const catColor = getCategoryColor(item.category || 'Generale');
   const dateInfo = getDateStatus(item.date);
 
+  const isVariant = Boolean(item.isVariant || (item.number && String(item.number).toLowerCase().includes('variant')));
+  const foilClass = isVariant ? 'foil-hologram' : '';
+
   const statusClass = (item.set === 'Acquisti') ? dateInfo.colorClass : '';
   const compactClass = isCompact ? 'compact-purchased' : '';
-  card.className = `item-card ${statusClass} ${compactClass}`;
+  card.className = `item-card ${statusClass} ${compactClass} ${foilClass}`;
 
   let checkHtml = '';
   if (item.set === 'Acquisti') {
@@ -1138,9 +1343,18 @@ function createItemCard(item, isCompact) {
       mainValueHtml = `<span class="item-num">#${escapeHtml(item.number)}</span>`;
     }
   } else if (item.set === 'Posseduti') {
-    const numDisplay = item.number ? `<span class="item-num">#${escapeHtml(item.number)}</span>` : '';
     const gapDisplay = item.missingGapNotice ? `<span class="gap-badge" title="Volumi intermedi non ancora registrati">${escapeHtml(item.missingGapNotice)}</span>` : '';
-    mainValueHtml = `${gapDisplay} ${numDisplay}`;
+    const volNumText = item.number ? escapeHtml(item.number) : '1';
+    
+    // Stepper rapido +1 / -1 per il numero volume in Posseduti
+    mainValueHtml = `
+      ${gapDisplay}
+      <div class="volume-stepper-wrap" title="Modifica rapida volume">
+        <button type="button" class="vol-step-btn vol-step-minus" aria-label="Volume precedente">-</button>
+        <span class="item-num">#${volNumText}</span>
+        <button type="button" class="vol-step-btn vol-step-plus" aria-label="Volume successivo">+</button>
+      </div>
+    `;
   } else if (item.set === 'Voti') {
     if (item.unplayed) {
       mainValueHtml = `
@@ -1152,7 +1366,9 @@ function createItemCard(item, isCompact) {
         </span>
       `;
     } else if (item.rating !== null && item.rating !== undefined) {
-      mainValueHtml = `<span class="score-badge-100">${item.rating}/100</span>`;
+      const scoreClass = getScoreBadgeClass(item.rating);
+      const medalHtml = medalIcon ? `<span class="medal-badge">${medalIcon}</span>` : '';
+      mainValueHtml = `${medalHtml}<span class="score-badge-100 ${scoreClass}">${item.rating}/100</span>`;
     }
   }
 
@@ -1162,6 +1378,12 @@ function createItemCard(item, isCompact) {
   }
 
   const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
+  const readBadgeClass = item.isRead ? '' : 'is-unread';
+  const readHtml = `<span class="read-badge ${readBadgeClass}" title="Clicca per segnare come letto/non letto">${item.isRead ? 'Letto' : 'Non letto'}</span>`;
+  const foilBadgeHtml = isVariant ? `<span class="foil-sparkle-badge">★ Variant</span>` : '';
+
+  const nameClickableClass = (item.set === 'Posseduti') ? 'item-name-clickable' : '';
+  const nameTitleAttr = (item.set === 'Posseduti') ? 'title="Clicca per aprire la libreria 3D della collana"' : '';
 
   card.innerHTML = `
     <div class="card-left-section">
@@ -1170,8 +1392,10 @@ function createItemCard(item, isCompact) {
         <div class="item-tags-row">
           <span class="item-tag-inline" style="color: ${catColor};">${catName}</span>
           ${completedHtml}
+          ${readHtml}
+          ${foilBadgeHtml}
         </div>
-        <span class="item-name">${escapeHtml(item.title)}</span>
+        <span class="item-name ${nameClickableClass}" ${nameTitleAttr}>${escapeHtml(item.title)}</span>
         ${chapterTrackerHtml}
       </div>
     </div>
@@ -1200,9 +1424,41 @@ function createItemCard(item, isCompact) {
     </div>
   `;
 
-  // Clic su card per aprire modale
+  // Click sul badge Letto per cambiare stato al volo
+  const readBadgeElem = card.querySelector('.read-badge');
+  if (readBadgeElem) {
+    readBadgeElem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleReadStatus(item.id);
+    });
+  }
+
+  // Stepper rapido sul numero volume in Posseduti
+  const volStepMinus = card.querySelector('.vol-step-minus');
+  const volStepPlus = card.querySelector('.vol-step-plus');
+  if (volStepMinus) {
+    volStepMinus.addEventListener('click', (e) => {
+      e.stopPropagation();
+      updateVolumeStep(item.id, -1);
+    });
+  }
+  if (volStepPlus) {
+    volStepPlus.addEventListener('click', (e) => {
+      e.stopPropagation();
+      updateVolumeStep(item.id, 1);
+    });
+  }
+
+  const nameElement = card.querySelector('.item-name');
+  if (item.set === 'Posseduti' && nameElement) {
+    nameElement.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openMangaShelf3D(item.title, item.category);
+    });
+  }
+
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.check-btn') || e.target.closest('.icon-btn') || e.target.closest('.chapter-stepper-wrap')) return;
+    if (e.target.closest('.check-btn') || e.target.closest('.icon-btn') || e.target.closest('.chapter-stepper-wrap') || e.target.closest('.volume-stepper-wrap') || e.target.closest('.read-badge')) return;
     if (item.set === 'Posseduti') {
       openOverviewModal(item);
     } else {
@@ -1210,12 +1466,15 @@ function createItemCard(item, isCompact) {
     }
   });
 
-  // Gestione check acquisto
   if (item.set === 'Acquisti') {
     card.querySelector('.check-btn').addEventListener('click', (e) => {
       e.stopPropagation();
+      const prev = { ...item };
       const willBePurchased = !item.purchased;
       item.purchased = willBePurchased;
+
+      pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
+
       saveData();
       syncItemToSupabase(item);
 
@@ -1229,7 +1488,6 @@ function createItemCard(item, isCompact) {
     });
   }
 
-  // Avanzamento capitolo da pulsanti
   if (item.set === 'Posseduti') {
     const stepMinus = card.querySelector('.step-minus');
     const stepPlus = card.querySelector('.step-plus');
@@ -1271,97 +1529,318 @@ function createItemCard(item, isCompact) {
     deleteItemWithUndo(item);
   });
 
-  // Integrazione gesture Swipe su mobile
-  attachSwipeListeners(card, item);
-
   return card;
 }
 
-// Handler Swipe Touch Gestures
-function attachSwipeListeners(cardElement, item) {
-  let startX = 0;
-  let startY = 0;
-  let currentX = 0;
-  let isSwiping = false;
-  let isScrolling = false;
+// ----------------------------------------------------
+// SCAFFALE COSTE 3D (MANGA SPINE SHELF)
+// ----------------------------------------------------
+function openMangaShelf3D(seriesTitle, category) {
+  shelfSeriesTitle.textContent = seriesTitle;
+  shelfCategoryTag.textContent = category || 'Generale';
+  shelfCategoryTag.style.color = getCategoryColor(category || 'Generale');
 
-  cardElement.addEventListener('touchstart', (e) => {
-    if (e.target.closest('.chapter-stepper-wrap') || e.target.closest('.icon-btn') || e.target.closest('.check-btn')) {
-      return;
-    }
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    isSwiping = true;
-    isScrolling = false;
-    cardElement.style.transition = 'none';
-  }, { passive: true });
+  shelfSpineContainer.innerHTML = '';
 
-  cardElement.addEventListener('touchmove', (e) => {
-    if (!isSwiping || isScrolling) return;
+  const ownedSeriesVolumes = appData.items.filter(i => 
+    i.set === 'Posseduti' && 
+    i.title.toLowerCase() === seriesTitle.toLowerCase()
+  );
 
-    currentX = e.touches[0].clientX;
-    const diffX = currentX - startX;
-    const diffY = e.touches[0].clientY - startY;
+  const ownedNumbersMap = new Map();
+  ownedSeriesVolumes.forEach(it => {
+    const n = parseInt(it.number, 10);
+    if (!isNaN(n)) ownedNumbersMap.set(n, it);
+  });
 
-    if (Math.abs(diffY) > Math.abs(diffX) && Math.abs(diffX) < 10) {
-      isScrolling = true;
-      cardElement.style.transform = 'translateX(0)';
-      return;
-    }
+  const numbers = Array.from(ownedNumbersMap.keys()).sort((a, b) => a - b);
+  const minVol = numbers.length > 0 ? Math.min(1, numbers[0]) : 1;
+  const maxVol = numbers.length > 0 ? Math.max(...numbers) : 1;
 
-    if (Math.abs(diffX) > 10) {
-      cardElement.style.transform = `translateX(${diffX}px)`;
+  const spineColor = getCategoryColor(category);
 
-      if (diffX > 60) {
-        cardElement.classList.add('swipe-complete');
-        cardElement.classList.remove('swipe-delete');
-      } else if (diffX < -60) {
-        cardElement.classList.add('swipe-delete');
-        cardElement.classList.remove('swipe-complete');
-      } else {
-        cardElement.classList.remove('swipe-complete', 'swipe-delete');
-      }
-    }
-  }, { passive: true });
+  for (let v = minVol; v <= maxVol; v++) {
+    const ownedItem = ownedNumbersMap.get(v);
 
-  cardElement.addEventListener('touchend', async () => {
-    if (!isSwiping || isScrolling) {
-      isSwiping = false;
-      return;
-    }
-    isSwiping = false;
+    if (ownedItem) {
+      const spine = document.createElement('div');
+      spine.className = 'manga-spine';
+      spine.style.backgroundColor = spineColor;
 
-    const diffX = currentX - startX;
-    cardElement.style.transition = 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
+      spine.innerHTML = `
+        <span class="spine-vol-num">#${v}</span>
+        <span class="spine-title-vertical">${escapeHtml(seriesTitle)}</span>
+        <span style="font-size: 0.6rem; font-weight: 800; color: rgba(255,255,255,0.7);">VOL</span>
+      `;
 
-    if (diffX > 90) {
-      // Swipe Destra: Azione Positiva (Spunta acquisto o +1 capitolo)
-      cardElement.style.transform = 'translateX(0)';
-      if (item.set === 'Acquisti') {
-        item.purchased = !item.purchased;
-        saveData();
-        syncItemToSupabase(item);
-        if (item.purchased) syncPurchasedWithPosseduti(item);
-        else rollbackPurchasedFromPosseduti(item);
-        renderList();
-      } else if (item.set === 'Posseduti') {
-        updateChapterStep(item.id, 1);
-      }
-    } else if (diffX < -90) {
-      // Swipe Sinistra: Elimina
-      cardElement.style.transform = 'translateX(0)';
-      deleteItemWithUndo(item);
+      spine.addEventListener('click', () => {
+        closeShelfModal();
+        openOverviewModal(ownedItem);
+      });
+
+      shelfSpineContainer.appendChild(spine);
     } else {
-      cardElement.style.transform = 'translateX(0)';
-    }
+      const ghost = document.createElement('div');
+      ghost.className = 'manga-spine missing-ghost';
+      ghost.title = `Volume #${v} mancante! Clicca per aggiungerlo ad Acquisti`;
 
-    cardElement.classList.remove('swipe-complete', 'swipe-delete');
-    startX = 0;
-    currentX = 0;
+      ghost.innerHTML = `
+        <span class="spine-vol-num" style="border-color: #f59e0b; color: #f59e0b;">#${v}</span>
+        <span class="spine-ghost-label">+ Prendi</span>
+      `;
+
+      ghost.addEventListener('click', () => {
+        if (confirm(`Aggiungere "${seriesTitle} #${v}" alla lista Acquisti?`)) {
+          const newItem = {
+            id: generateUniqueId(),
+            title: seriesTitle,
+            set: 'Acquisti',
+            category: category || 'Generale',
+            date: null,
+            number: String(v),
+            rating: null,
+            unplayed: false,
+            purchased: false,
+            completed: false,
+            isRead: false,
+            isVariant: false,
+            missingGapNotice: null,
+            readingChapter: '',
+            privateComment: ''
+          };
+          appData.items.unshift(newItem);
+          pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
+          saveData();
+          syncItemToSupabase(newItem);
+          closeShelfModal();
+          renderList();
+          showToastNotice(`"${seriesTitle} #${v}" aggiunto ad Acquisti!`);
+        }
+      });
+
+      shelfSpineContainer.appendChild(ghost);
+    }
+  }
+
+  shelfModalBackdrop.classList.add('active');
+}
+
+function closeShelfModal() {
+  shelfModalBackdrop.classList.remove('active');
+}
+
+if (closeShelfModalBtn) closeShelfModalBtn.addEventListener('click', closeShelfModal);
+if (shelfModalBackdrop) {
+  shelfModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === shelfModalBackdrop) closeShelfModal();
   });
 }
 
-// Inserimento a Intervallo (Batch Range)
+// ----------------------------------------------------
+// VERIFICA BARCODE (SCHERMATA INTERA DEDICATA)
+// ----------------------------------------------------
+function openCheckerModal() {
+  checkerResultBox.className = 'checker-result-box idle';
+  checkerSignalIcon.textContent = '📷';
+  checkerStatusTitle.textContent = 'Inquadra il codice a barre';
+  checkerStatusDesc.textContent = 'Punta la fotocamera sull\'ISBN per verificare se è già in collezione.';
+  checkerAddToAcquistiBtn.style.display = 'none';
+  checkerAddToPossedutiBtn.style.display = 'none';
+  lastDetectedCheckItem = null;
+
+  checkerModalBackdrop.classList.add('active');
+
+  if (!checkerScanner) {
+    checkerScanner = new Html5Qrcode('checkerCameraReader');
+  }
+
+  checkerScanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 260, height: 160 } },
+    async (decodedText) => {
+      await processBarcodeVerification(decodedText);
+    },
+    (err) => {}
+  ).catch(err => {
+    checkerStatusTitle.textContent = 'Fotocamera non disponibile';
+    checkerStatusDesc.textContent = 'Verifica di aver concesso i permessi per la fotocamera.';
+  });
+}
+
+function stopCheckerModal() {
+  if (checkerScanner) {
+    checkerScanner.stop().catch(() => {}).then(() => {
+      checkerModalBackdrop.classList.remove('active');
+    });
+  } else {
+    checkerModalBackdrop.classList.remove('active');
+  }
+}
+
+async function processBarcodeVerification(isbn) {
+  if (checkerScanner) {
+    try { await checkerScanner.pause(); } catch(e) {}
+  }
+
+  checkerSignalIcon.textContent = '⏳';
+  checkerStatusTitle.textContent = 'Ricerca dati ISBN in corso...';
+  checkerStatusDesc.textContent = `Codice: ${isbn}`;
+
+  try {
+    const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
+    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+    const data = await res.json();
+
+    let titleFound = '';
+    let volumeFound = null;
+
+    if (data.items && data.items.length > 0) {
+      const volumeInfo = data.items[0].volumeInfo;
+      titleFound = volumeInfo.title || '';
+      const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
+      if (numMatch) {
+        titleFound = numMatch[1].trim();
+        volumeFound = numMatch[2].trim();
+      }
+    } else {
+      titleFound = `Opera ISBN ${isbn}`;
+    }
+
+    lastDetectedCheckItem = { title: titleFound, number: volumeFound };
+    const titleLower = titleFound.toLowerCase();
+
+    const inPosseduti = appData.items.find(i => 
+      i.set === 'Posseduti' && 
+      i.title.toLowerCase() === titleLower && 
+      (!volumeFound || String(i.number || '') === String(volumeFound))
+    );
+
+    const inOtherCollections = appData.items.find(i => 
+      (i.set === 'Voti' || i.set === 'Liste') && 
+      i.title.toLowerCase() === titleLower
+    );
+
+    if (inPosseduti) {
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      checkerResultBox.className = 'checker-result-box red-signal';
+      checkerSignalIcon.textContent = '⛔';
+      checkerStatusTitle.textContent = 'GIÀ PRESENTE IN COLLEZIONE!';
+      checkerStatusDesc.textContent = `"${inPosseduti.title}" ${inPosseduti.number ? '#' + inPosseduti.number : ''} è già registrato nei tuoi POSSEDUTI [${inPosseduti.category || 'Generale'}].`;
+      checkerAddToAcquistiBtn.style.display = 'none';
+      checkerAddToPossedutiBtn.style.display = 'none';
+    } else if (inOtherCollections) {
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      checkerResultBox.className = 'checker-result-box red-signal';
+      checkerSignalIcon.textContent = '⛔';
+      checkerStatusTitle.textContent = `PRESENTE IN ${inOtherCollections.set.toUpperCase()}!`;
+      checkerStatusDesc.textContent = `"${inOtherCollections.title}" è già memorizzato nella sezione ${inOtherCollections.set}.`;
+      checkerAddToAcquistiBtn.style.display = 'none';
+      checkerAddToPossedutiBtn.style.display = 'none';
+    } else {
+      if (navigator.vibrate) navigator.vibrate(80);
+      checkerResultBox.className = 'checker-result-box green-signal';
+      checkerSignalIcon.textContent = '✅';
+      checkerStatusTitle.textContent = 'NON PRESENTE: PUOI ACQUISTARLO!';
+      checkerStatusDesc.textContent = `"${titleFound}" ${volumeFound ? '#' + volumeFound : ''} NON risulta nei tuoi volumi posseduti.`;
+      checkerAddToAcquistiBtn.style.display = 'inline-flex';
+      checkerAddToPossedutiBtn.style.display = 'inline-flex';
+    }
+  } catch (err) {
+    checkerResultBox.className = 'checker-result-box idle';
+    checkerSignalIcon.textContent = '⚠️';
+    checkerStatusTitle.textContent = 'Errore di connessione';
+    checkerStatusDesc.textContent = 'Impossibile verificare l\'ISBN sui server online.';
+  }
+}
+
+if (openCheckerScanBtn) openCheckerScanBtn.addEventListener('click', openCheckerModal);
+if (openCheckerTopBtn) openCheckerTopBtn.addEventListener('click', openCheckerModal);
+if (closeCheckerModalBtn) closeCheckerModalBtn.addEventListener('click', stopCheckerModal);
+
+if (checkerResetBtn) {
+  checkerResetBtn.addEventListener('click', () => {
+    checkerResultBox.className = 'checker-result-box idle';
+    checkerSignalIcon.textContent = '📷';
+    checkerStatusTitle.textContent = 'Inquadra il codice a barre';
+    checkerStatusDesc.textContent = 'Punta la fotocamera sull\'ISBN per verificare se è già in collezione.';
+    checkerAddToAcquistiBtn.style.display = 'none';
+    checkerAddToPossedutiBtn.style.display = 'none';
+    lastDetectedCheckItem = null;
+    if (checkerScanner) {
+      try { checkerScanner.resume(); } catch(e) {}
+    }
+  });
+}
+
+if (checkerAddToAcquistiBtn) {
+  checkerAddToAcquistiBtn.addEventListener('click', () => {
+    if (!lastDetectedCheckItem) return;
+    const newItem = {
+      id: generateUniqueId(),
+      title: lastDetectedCheckItem.title,
+      set: 'Acquisti',
+      category: 'Generale',
+      date: null,
+      number: lastDetectedCheckItem.number || null,
+      rating: null,
+      unplayed: false,
+      purchased: false,
+      completed: false,
+      isRead: false,
+      isVariant: false,
+      missingGapNotice: null,
+      readingChapter: '',
+      privateComment: ''
+    };
+    appData.items.unshift(newItem);
+    pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
+    saveData();
+    syncItemToSupabase(newItem);
+    renderList();
+    stopCheckerModal();
+    showToastNotice(`"${newItem.title}" aggiunto agli Acquisti!`);
+  });
+}
+
+if (checkerAddToPossedutiBtn) {
+  checkerAddToPossedutiBtn.addEventListener('click', () => {
+    if (!lastDetectedCheckItem) return;
+    const newItem = {
+      id: generateUniqueId(),
+      title: lastDetectedCheckItem.title,
+      set: 'Posseduti',
+      category: 'Generale',
+      date: null,
+      number: lastDetectedCheckItem.number || null,
+      rating: null,
+      unplayed: false,
+      purchased: false,
+      completed: false,
+      isRead: false,
+      isVariant: false,
+      missingGapNotice: null,
+      readingChapter: '',
+      privateComment: ''
+    };
+    appData.items.unshift(newItem);
+    pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
+    saveData();
+    syncItemToSupabase(newItem);
+    renderList();
+    stopCheckerModal();
+    showToastNotice(`"${newItem.title}" aggiunto ai Posseduti!`);
+  });
+}
+
+if (checkerModalBackdrop) {
+  checkerModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === checkerModalBackdrop) stopCheckerModal();
+  });
+}
+
+// ----------------------------------------------------
+// BATCH INSERT (BLOCCO VOLUMI)
+// ----------------------------------------------------
 function openBatchModal() {
   batchItemForm.reset();
   batchStartVol.value = 1;
@@ -1423,36 +1902,48 @@ if (batchItemForm) {
       alert('Intervallo non valido: il volume iniziale deve essere minore o uguale al volume finale.');
       return;
     }
-    if (end - start > 150) {
-      alert('Per motivi di prestazioni, puoi creare al massimo 150 volumi alla volta.');
-      return;
-    }
 
     const createdItems = [];
     for (let v = start; v <= end; v++) {
-      createdItems.push({
-        id: generateUniqueId(),
-        title: title,
-        set: set,
-        category: cat,
-        date: null,
-        number: String(v),
-        rating: null,
-        unplayed: false,
-        purchased: set === 'Posseduti',
-        completed: false,
-        missingGapNotice: null,
-        readingChapter: '',
-        privateComment: ''
-      });
+      const exists = appData.items.some(i => 
+        i.title.toLowerCase() === title.toLowerCase() &&
+        i.set === set &&
+        String(i.number || '') === String(v) &&
+        !i.isVariant
+      );
+
+      if (!exists) {
+        createdItems.push({
+          id: generateUniqueId(),
+          title: title,
+          set: set,
+          category: cat,
+          date: null,
+          number: String(v),
+          rating: null,
+          unplayed: false,
+          purchased: set === 'Posseduti',
+          completed: false,
+          isRead: false,
+          isVariant: false,
+          missingGapNotice: null,
+          readingChapter: '',
+          privateComment: ''
+        });
+      }
+    }
+
+    if (createdItems.length === 0) {
+      alert(`Tutti i volumi selezionati di "${title}" sono già presenti nella collezione!`);
+      return;
     }
 
     appData.items.unshift(...createdItems);
+    pushHistoryAction({ type: 'INSERT', data: createdItems.map(i => ({ ...i })) });
     saveData();
     closeBatchModal();
 
     await syncBatchItemsToSupabase(createdItems);
-
     showToastNotice(`Aggiunti ${createdItems.length} volumi di "${title}"!`);
 
     if (activeSet !== set) {
@@ -1463,6 +1954,7 @@ if (batchItemForm) {
         b.classList.toggle('active', isSelected);
         b.setAttribute('aria-selected', String(isSelected));
       });
+      sortIndicatorText.textContent = SORT_LABELS[getCurrentSortMode()] || 'Per Data';
       updateFilterBarChips();
     }
 
@@ -1470,7 +1962,9 @@ if (batchItemForm) {
   });
 }
 
-// Scanner ISBN
+// ----------------------------------------------------
+// SCANNER ISBN NEL FORM
+// ----------------------------------------------------
 if (startScanBtn) {
   startScanBtn.addEventListener('click', () => {
     scannerContainer.style.display = 'block';
@@ -1534,7 +2028,9 @@ async function fetchBookDataByISBN(isbn) {
   }
 }
 
-// Statistiche
+// ----------------------------------------------------
+// STATISTICHE DETTAGLIATE PER SOTTO-CATEGORIA
+// ----------------------------------------------------
 if (openStatsBtn) {
   openStatsBtn.addEventListener('click', () => {
     const allItems = appData.items;
@@ -1560,19 +2056,50 @@ if (openStatsBtn) {
     }
 
     statsCatList.innerHTML = '';
-    const catCounts = {};
-    appData.categories.forEach(c => catCounts[c] = 0);
-    ownedItems.forEach(i => {
-      const c = i.category || 'Generale';
-      catCounts[c] = (catCounts[c] || 0) + 1;
+    const catStats = {};
+
+    appData.categories.forEach(c => {
+      catStats[c] = { ownedCount: 0, scores: [] };
     });
 
-    Object.entries(catCounts).forEach(([cat, count]) => {
+    ownedItems.forEach(i => {
+      const c = i.category || 'Generale';
+      if (!catStats[c]) catStats[c] = { ownedCount: 0, scores: [] };
+      catStats[c].ownedCount++;
+    });
+
+    scoredItems.forEach(i => {
+      const c = i.category || 'Generale';
+      if (!catStats[c]) catStats[c] = { ownedCount: 0, scores: [] };
+      catStats[c].scores.push(i.rating);
+    });
+
+    Object.entries(catStats).forEach(([cat, stat]) => {
       const row = document.createElement('div');
-      row.className = 'stat-cat-row';
+      row.className = 'stat-cat-row-detailed';
+
+      const color = getCategoryColor(cat);
+      const totalOwned = ownedItems.length || 1;
+      const percent = Math.round((stat.ownedCount / totalOwned) * 100);
+
+      let avgRatingText = 'N.D.';
+      if (stat.scores.length > 0) {
+        const avg = Math.round(stat.scores.reduce((a, b) => a + b, 0) / stat.scores.length);
+        avgRatingText = `${avg}/100`;
+      }
+
       row.innerHTML = `
-        <span style="color: ${getCategoryColor(cat)}; font-weight: 600;">${escapeHtml(cat)}</span>
-        <span style="font-weight: 700;">${count} vol.</span>
+        <div class="stat-cat-row-top">
+          <span style="color: ${color}; font-weight: 700; font-size: 0.95rem;">${escapeHtml(cat)}</span>
+          <span style="font-weight: 800; font-size: 0.95rem;">${stat.ownedCount} volumi</span>
+        </div>
+        <div class="stat-cat-progress-bg">
+          <div class="stat-cat-progress-fill" style="width: ${percent}%; background-color: ${color};"></div>
+        </div>
+        <div class="stat-cat-meta-row">
+          <span>${percent}% della collezione</span>
+          <span>Media Voti: <strong style="color: var(--accent-cyan);">${avgRatingText}</strong></span>
+        </div>
       `;
       statsCatList.appendChild(row);
     });
@@ -1588,7 +2115,9 @@ if (statsModalBackdrop) {
   });
 }
 
-// Panoramica Posseduti
+// ----------------------------------------------------
+// PANORAMICA POSSEDUTI
+// ----------------------------------------------------
 function openOverviewModal(item) {
   currentOverviewItemId = item.id;
   overviewTitleDisplay.textContent = item.title;
@@ -1627,8 +2156,11 @@ if (saveOverviewDetailsBtn) {
     if (!currentOverviewItemId) return;
     const item = appData.items.find(i => i.id === currentOverviewItemId);
     if (item) {
+      const prev = { ...item };
       item.readingChapter = overviewReadingProgressInput.value.trim();
       item.privateComment = overviewCommentInput.value.trim();
+      pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
+
       saveData();
       syncItemToSupabase(item);
       closeOverviewModal();
@@ -1650,6 +2182,7 @@ if (overviewEditFullBtn) {
 }
 
 function deleteItemWithUndo(item) {
+  pushHistoryAction({ type: 'DELETE', data: { ...item } });
   deletedItemBuffer = { ...item };
   appData.items = appData.items.filter(i => i.id !== item.id);
   saveData();
@@ -1696,12 +2229,15 @@ function createNextVolume(item) {
     unplayed: false,
     purchased: false,
     completed: false,
+    isRead: false,
+    isVariant: false,
     missingGapNotice: null,
     readingChapter: '',
     privateComment: ''
   };
 
   appData.items.unshift(newItem);
+  pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
   saveData();
   syncItemToSupabase(newItem);
   renderList();
@@ -1780,6 +2316,8 @@ function openCreateModalWithTitle(initialTitle) {
   stopScanner();
   itemScoreInput.disabled = false;
   itemScoreInput.placeholder = 'es. 85';
+  if (itemVariantCheckbox) itemVariantCheckbox.checked = false;
+  if (itemReadCheckbox) itemReadCheckbox.checked = false;
 
   populateFormCategories();
   updateAutoCompletionList();
@@ -1814,6 +2352,8 @@ function openEditModal(item) {
   itemDate.value = item.date || '';
   itemNumber.value = item.number || '';
   itemCompletedCheckbox.checked = Boolean(item.completed);
+  if (itemReadCheckbox) itemReadCheckbox.checked = Boolean(item.isRead);
+  if (itemVariantCheckbox) itemVariantCheckbox.checked = Boolean(item.isVariant);
 
   itemUnplayedCheckbox.checked = Boolean(item.unplayed);
   if (item.unplayed) {
@@ -1845,6 +2385,9 @@ modalBackdrop.addEventListener('click', (e) => {
   if (e.target === modalBackdrop) closeModal();
 });
 
+// ----------------------------------------------------
+// SALVATAGGIO CON BLOCCO DUPLICATI E DEROGA VARIANT
+// ----------------------------------------------------
 itemForm.addEventListener('submit', (e) => {
   e.preventDefault();
 
@@ -1853,10 +2396,42 @@ itemForm.addEventListener('submit', (e) => {
   const set = targetSet.value;
   const typedCat = newCategoryInput.value.trim();
   let category = categorySelect.value;
+  const isVariantChecked = itemVariantCheckbox ? itemVariantCheckbox.checked : false;
+  const isReadChecked = itemReadCheckbox ? itemReadCheckbox.checked : false;
 
   const numInTitleMatch = title.match(/^(.*?)\s+#?(\d+)$/);
   if (numInTitleMatch && itemNumber.value === numInTitleMatch[2] && (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste')) {
     title = numInTitleMatch[1];
+  }
+
+  const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (itemNumber.value.trim() || null) : null;
+
+  // CONTROLLO DUPLICATI:
+  if (!idToEdit) {
+    const duplicateInOther = appData.items.find(i => 
+      i.title.toLowerCase() === title.toLowerCase() &&
+      (i.set === 'Voti' || i.set === 'Liste')
+    );
+
+    if (duplicateInOther) {
+      alert(`Impossibile aggiungere: "${title}" è già presente nella sezione "${duplicateInOther.set}"!`);
+      return;
+    }
+
+    // Se NON è Variant, blocca lo stesso volume. Se è Variant, consente numeri doppi!
+    if (!isVariantChecked) {
+      const duplicateSame = appData.items.find(i => 
+        i.title.toLowerCase() === title.toLowerCase() &&
+        i.set === set &&
+        String(i.number || '') === String(number || '') &&
+        !i.isVariant
+      );
+
+      if (duplicateSame) {
+        alert(`"${title}" ${number ? '#' + number : ''} è già presente in "${set}"! Se si tratta di una variant, spunta "Edizione Variant".`);
+        return;
+      }
+    }
   }
 
   if (!idToEdit && typedCat) {
@@ -1870,7 +2445,6 @@ itemForm.addEventListener('submit', (e) => {
   if (!category) category = 'Generale';
 
   const date = (set === 'Acquisti') ? (itemDate.value || null) : null;
-  const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (itemNumber.value.trim() || null) : null;
   const completed = (set === 'Acquisti' || set === 'Posseduti') ? itemCompletedCheckbox.checked : false;
 
   let rating = null;
@@ -1892,15 +2466,19 @@ itemForm.addEventListener('submit', (e) => {
   if (idToEdit) {
     const existing = appData.items.find(i => i.id == idToEdit);
     if (existing) {
+      const prev = { ...existing };
       existing.title = title;
       existing.set = set;
       existing.category = category;
       existing.date = date;
       existing.number = number;
       existing.completed = completed;
+      existing.isRead = isReadChecked;
       existing.rating = rating;
       existing.unplayed = unplayed;
+      existing.isVariant = isVariantChecked;
       finalItem = existing;
+      pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...existing } });
     }
   } else {
     finalItem = {
@@ -1911,14 +2489,17 @@ itemForm.addEventListener('submit', (e) => {
       date,
       number,
       completed,
+      isRead: isReadChecked,
       rating,
       unplayed,
+      isVariant: isVariantChecked,
       purchased: false,
       missingGapNotice: null,
       readingChapter: '',
       privateComment: ''
     };
     appData.items.unshift(finalItem);
+    pushHistoryAction({ type: 'INSERT', data: { ...finalItem } });
   }
 
   saveData();
@@ -1934,6 +2515,7 @@ itemForm.addEventListener('submit', (e) => {
       b.classList.toggle('active', isSelected);
       b.setAttribute('aria-selected', String(isSelected));
     });
+    sortIndicatorText.textContent = SORT_LABELS[getCurrentSortMode()] || 'Per Data';
     updateFilterBarChips();
   }
 
@@ -1942,11 +2524,30 @@ itemForm.addEventListener('submit', (e) => {
 
 // Scorciatoie da tastiera
 window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    if (e.key === 'z' || e.key === 'Z') {
+      if (e.shiftKey) {
+        e.preventDefault();
+        executeRedo();
+      } else {
+        e.preventDefault();
+        executeUndo();
+      }
+      return;
+    } else if (e.key === 'y' || e.key === 'Y') {
+      e.preventDefault();
+      executeRedo();
+      return;
+    }
+  }
+
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     if (e.key === 'Escape') {
       document.activeElement.blur();
       closeModal();
       closeBatchModal();
+      stopCheckerModal();
+      closeShelfModal();
       closeOverviewModal();
       closeSettingsModal();
       if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
@@ -1966,6 +2567,8 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'Escape') {
     closeModal();
     closeBatchModal();
+    stopCheckerModal();
+    closeShelfModal();
     closeOverviewModal();
     closeSettingsModal();
     if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
@@ -2144,8 +2747,10 @@ confirmExportBtn.addEventListener('click', () => {
       date: item.date || null,
       number: item.number || null,
       completed: Boolean(item.completed),
+      isRead: Boolean(item.isRead),
       rating: item.rating !== undefined ? item.rating : null,
       unplayed: Boolean(item.unplayed),
+      isVariant: Boolean(item.isVariant),
       purchased: Boolean(item.purchased),
       missingGapNotice: item.missingGapNotice || null,
       readingChapter: item.readingChapter || '',
@@ -2175,7 +2780,7 @@ confirmExportBtn.addEventListener('click', () => {
   closeSettingsModal();
 });
 
-// Importa JSON
+// Importazione JSON
 triggerImportBtn.addEventListener('click', () => {
   importJsonFileInput.click();
 });
@@ -2195,6 +2800,8 @@ importJsonFileInput.addEventListener('change', (e) => {
       }
 
       let importedCount = 0;
+      let skippedCount = 0;
+      const newlyImported = [];
 
       if (Array.isArray(importedData.categoriesList)) {
         importedData.categoriesList.forEach(cat => {
@@ -2210,44 +2817,62 @@ importJsonFileInput.addEventListener('change', (e) => {
 
         const target = incoming.targetSet || incoming.set || 'Acquisti';
         const category = incoming.category || 'Generale';
+        const incomingIsVariant = Boolean(incoming.isVariant || (incoming.number && String(incoming.number).toLowerCase().includes('variant')));
 
         if (!appData.categories.includes(category)) {
           appData.categories.push(category);
         }
 
-        const exists = appData.items.some(existing => 
+        const isDuplicateGlobally = appData.items.some(existing => 
           existing.title.toLowerCase() === incoming.title.toLowerCase() &&
-          existing.set === target &&
-          existing.number === (incoming.number || null)
+          (existing.set === 'Voti' || existing.set === 'Liste')
         );
 
-        if (!exists) {
-          let incomingRating = incoming.rating;
-          if (incomingRating !== null && incomingRating !== undefined && incomingRating <= 5) {
-            incomingRating = incomingRating * 20;
-          }
+        const isDuplicateInSameSet = appData.items.some(existing => 
+          existing.title.toLowerCase() === incoming.title.toLowerCase() &&
+          existing.set === target &&
+          String(existing.number || '') === String(incoming.number || '') &&
+          !incomingIsVariant &&
+          !existing.isVariant
+        );
 
-          const newItem = {
-            id: incoming.id || generateUniqueId(),
-            title: incoming.title,
-            set: target,
-            category: category,
-            date: incoming.date || null,
-            number: incoming.number || null,
-            completed: Boolean(incoming.completed),
-            rating: incomingRating !== undefined ? incomingRating : null,
-            unplayed: Boolean(incoming.unplayed),
-            purchased: Boolean(incoming.purchased),
-            missingGapNotice: incoming.missingGapNotice || null,
-            readingChapter: incoming.readingChapter || '',
-            privateComment: incoming.privateComment || ''
-          };
-
-          appData.items.unshift(newItem);
-          syncItemToSupabase(newItem);
-          importedCount++;
+        if (isDuplicateGlobally || isDuplicateInSameSet) {
+          skippedCount++;
+          return;
         }
+
+        let incomingRating = incoming.rating;
+        if (incomingRating !== null && incomingRating !== undefined && incomingRating <= 5) {
+          incomingRating = incomingRating * 20;
+        }
+
+        const newItem = {
+          id: incoming.id || generateUniqueId(),
+          title: incoming.title,
+          set: target,
+          category: category,
+          date: incoming.date || null,
+          number: incoming.number ? String(incoming.number) : null,
+          completed: Boolean(incoming.completed),
+          isRead: Boolean(incoming.isRead),
+          rating: incomingRating !== undefined ? incomingRating : null,
+          unplayed: Boolean(incoming.unplayed),
+          isVariant: incomingIsVariant,
+          purchased: Boolean(incoming.purchased),
+          missingGapNotice: incoming.missingGapNotice || null,
+          readingChapter: incoming.readingChapter || '',
+          privateComment: incoming.privateComment || ''
+        };
+
+        appData.items.unshift(newItem);
+        newlyImported.push(newItem);
+        syncItemToSupabase(newItem);
+        importedCount++;
       });
+
+      if (newlyImported.length > 0) {
+        pushHistoryAction({ type: 'INSERT', data: newlyImported.map(i => ({ ...i })) });
+      }
 
       saveData();
       updateCategoryDropdown();
@@ -2255,7 +2880,7 @@ importJsonFileInput.addEventListener('change', (e) => {
       closeSettingsModal();
       importJsonFileInput.value = '';
 
-      alert(`Importazione completata con successo! Aggiunti ${importedCount} nuovi elementi.`);
+      alert(`Importazione completata! Aggiunti: ${importedCount}, saltati perché già presenti: ${skippedCount}.`);
     } catch (err) {
       alert('Errore durante la lettura del file JSON: file corrotto o non leggibile.');
     }
@@ -2286,8 +2911,13 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
   activeSet = 'Acquisti';
   activeCategory = 'Generale';
   activeTimeFilter = 'all';
-  currentSortMode = 'date';
+  setSortModes = { Acquisti: 'date', Posseduti: 'name', Voti: 'number', Liste: 'name' };
+  localStorage.setItem('pref_set_sort_modes', JSON.stringify(setSortModes));
   searchSeriesQuery = '';
+
+  historyUndoStack.length = 0;
+  historyRedoStack.length = 0;
+  updateHistoryButtonsUI();
 
   closeSettingsModal();
   initApp();
@@ -2302,7 +2932,7 @@ function initApp() {
   });
 
   updateFilterBarChips();
-  sortIndicatorText.textContent = SORT_LABELS[currentSortMode] || 'Per Data';
+  sortIndicatorText.textContent = SORT_LABELS[getCurrentSortMode()] || 'Per Data';
 
   if (isPurchasedSectionOpen) {
     purchasedList.classList.add('open');
@@ -2311,9 +2941,9 @@ function initApp() {
   }
 
   updateCategoryDropdown();
+  updateHistoryButtonsUI();
   renderList();
 }
 
-// Avvio sequenziale
 initApp();
 initAuthAndApp();

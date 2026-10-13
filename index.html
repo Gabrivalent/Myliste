@@ -7,13 +7,12 @@
   
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0d0e12">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Collezione">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -108,6 +107,15 @@
       </nav>
 
       <div class="sidebar-footer">
+        <button class="nav-item-btn highlight-scan-nav" id="openCheckerScanBtn" type="button" title="Verifica se un volume è già tuo">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Verifica Barcode</span>
+        </button>
+
         <button class="nav-item-btn" id="openBatchModalBtn" type="button" title="Aggiungi Blocco Volumi">
           <div class="nav-icon">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -145,6 +153,27 @@
         </div>
         
         <div class="filter-bar-right">
+          <!-- PULSANTI UNDO / REDO -->
+          <div class="history-controls">
+            <button class="sort-tag-btn icon-history-btn" id="historyUndoBtn" title="Annulla ultima azione (Ctrl+Z)" type="button" disabled aria-label="Annulla">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+              </svg>
+            </button>
+            <button class="sort-tag-btn icon-history-btn" id="historyRedoBtn" title="Ripristina azione (Ctrl+Y)" type="button" disabled aria-label="Ripristina">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
+              </svg>
+            </button>
+          </div>
+
+          <button class="sort-tag-btn checker-quick-btn" id="openCheckerTopBtn" title="Scansiona per controllare se ce l'hai già" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
+            </svg>
+            <span>Verifica Barcode</span>
+          </button>
+
           <button class="sort-tag-btn" id="openBatchTopBtn" title="Aggiungi serie a blocchi (es. 1-10)" type="button">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
               <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/>
@@ -152,7 +181,7 @@
             <span>Blocco Volumi</span>
           </button>
 
-          <button class="sort-tag-btn" id="toggleSortBtn" title="Cambia ordinamento" type="button">
+          <button class="sort-tag-btn" id="toggleSortBtn" title="Cambia ordinamento per questo insieme" type="button">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
               <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/>
             </svg>
@@ -192,18 +221,56 @@
     </main>
   </div>
 
-  <!-- Toast Notifica "Annulla" -->
-  <div class="undo-toast" id="undoToast" role="status" aria-live="assertive">
-    <span id="undoToastMsg">Elemento eliminato</span>
-    <button type="button" id="undoBtn">Annulla</button>
+  <!-- MODALE: MANGA SPINE SHELF 3D (SCAFFALE COSTE) -->
+  <div class="modal-backdrop" id="shelfModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="shelfSeriesTitle">
+    <div class="modal-card shelf-modal-card">
+      <div class="modal-header">
+        <div class="overview-title-wrap">
+          <span class="item-tag-inline" id="shelfCategoryTag">Manga</span>
+          <h2 id="shelfSeriesTitle">Scaffale Collana</h2>
+        </div>
+        <button type="button" class="close-btn" id="closeShelfModalBtn" aria-label="Chiudi scaffale">&times;</button>
+      </div>
+
+      <p class="shelf-hint-text">Tocca un volume per vederne i dettagli o una sagoma vuota per aggiungerla agli Acquisti.</p>
+
+      <div class="shelf-viewport">
+        <div class="manga-shelf-3d" id="shelfSpineContainer"></div>
+        <div class="shelf-wood-base"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- Pulsante flottante (+) -->
-  <button class="fab-btn" id="openModalBtn" title="Aggiungi elemento (Tasto N)" aria-label="Aggiungi nuovo elemento" type="button" style="display: none;">
-    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-    </svg>
-  </button>
+  <!-- MODALE DEDICATA: VERIFICA COLLEZIONE VIA SCANNER BARCODE -->
+  <div class="modal-backdrop" id="checkerModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="checkerModalTitle">
+    <div class="modal-card checker-modal-card">
+      <div class="modal-header">
+        <h2 id="checkerModalTitle">Verifica Collezione (Scanner)</h2>
+        <button type="button" class="close-btn" id="closeCheckerModalBtn" aria-label="Chiudi verifica">&times;</button>
+      </div>
+
+      <div class="checker-body">
+        <div class="checker-camera-box">
+          <div id="checkerCameraReader"></div>
+          <div class="checker-laser-line"></div>
+        </div>
+
+        <div class="checker-result-box idle" id="checkerResultBox">
+          <div class="checker-signal-icon" id="checkerSignalIcon">📷</div>
+          <div class="checker-signal-text">
+            <h3 id="checkerStatusTitle">Inquadra il codice a barre</h3>
+            <p id="checkerStatusDesc">Punta la fotocamera sull'ISBN per verificare istantaneamente se è già in collezione.</p>
+          </div>
+        </div>
+
+        <div class="checker-actions-footer">
+          <button type="button" class="btn-secondary" id="checkerResetBtn">Scansiona un Altro</button>
+          <button type="button" class="btn-primary" id="checkerAddToAcquistiBtn" style="display: none;">+ Aggiungi agli Acquisti</button>
+          <button type="button" class="btn-primary" id="checkerAddToPossedutiBtn" style="display: none;">+ Aggiungi ai Posseduti</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Modale Aggiungi Blocco Volumi (Batch) -->
   <div class="modal-backdrop" id="batchModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle">
@@ -307,11 +374,26 @@
           </div>
         </div>
 
+        <!-- CHECKBOX FLAG VARIANT -->
+        <div class="input-group" id="variantGroupWrapper">
+          <label class="checkbox-row">
+            <input type="checkbox" id="itemVariantCheckbox">
+            <span class="custom-chk"></span>
+            <span style="font-size: 0.85rem; font-weight: 600;">★ Edizione Variant / Cover Alternativa (consente numeri doppi)</span>
+          </label>
+        </div>
+
         <div class="input-group" id="completedGroupWrapper">
           <label class="checkbox-row">
             <input type="checkbox" id="itemCompletedCheckbox">
             <span class="custom-chk"></span>
-            <span style="font-size: 0.85rem; font-weight: 600;">Opera / Serie Conclusa (disabilita +1)</span>
+            <span style="font-size: 0.85rem; font-weight: 600;">Opera / Serie Conclusa (Fine)</span>
+          </label>
+
+          <label class="checkbox-row" style="margin-top: 0.4rem;">
+            <input type="checkbox" id="itemReadCheckbox">
+            <span class="custom-chk"></span>
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--accent-cyan);">Volume / Opera già letta (Letto)</span>
           </label>
         </div>
 
@@ -421,7 +503,7 @@
       </div>
 
       <div class="stats-category-section">
-        <h3 class="stats-sub-title">Posseduti per Categoria</h3>
+        <h3 class="stats-sub-title">Dettaglio per Sotto-Categoria</h3>
         <div class="stats-cat-list" id="statsCatList"></div>
       </div>
     </div>
@@ -632,6 +714,19 @@
 
     </div>
   </div>
+
+  <!-- Toast Notifica "Annulla" -->
+  <div class="undo-toast" id="undoToast" role="status" aria-live="assertive">
+    <span id="undoToastMsg">Elemento eliminato</span>
+    <button type="button" id="undoBtn">Annulla</button>
+  </div>
+
+  <!-- Pulsante flottante (+) -->
+  <button class="fab-btn" id="openModalBtn" title="Aggiungi elemento (Tasto N)" aria-label="Aggiungi nuovo elemento" type="button" style="display: none;">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+    </svg>
+  </button>
 
   <script src="app.js"></script>
 </body>
