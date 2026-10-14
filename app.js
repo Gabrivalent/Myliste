@@ -748,6 +748,7 @@ categoryFilter.addEventListener('change', (e) => {
   renderList();
 });
 
+// Ordinamento per insieme attivo
 toggleSortBtn.addEventListener('click', () => {
   let mode = getCurrentSortMode();
   if (mode === 'date') mode = 'name';
@@ -1155,6 +1156,46 @@ async function updateChapterStep(itemId, delta) {
   await syncItemToSupabase(item);
 }
 
+// Inserimento manuale diretto del capitolo (es. 1195)
+async function setManualChapter(itemId) {
+  const item = appData.items.find(i => i.id === itemId);
+  if (!item) return;
+
+  const currentStr = String(item.readingChapter || '0').trim();
+  const currentNumMatch = currentStr.match(/\d+/);
+  const currentVal = currentNumMatch ? currentNumMatch[0] : '0';
+
+  const inputVal = prompt(`A che capitolo sei arrivato per "${item.title}"?`, currentVal);
+  if (inputVal === null) return;
+
+  const parsed = parseInt(inputVal.trim(), 10);
+  if (isNaN(parsed) || parsed < 0) {
+    alert("Inserisci un numero di capitolo valido (uguale o maggiore di 0).");
+    return;
+  }
+
+  const prev = { ...item };
+  let updatedString = '';
+  if (currentStr && isNaN(Number(currentStr))) {
+    updatedString = currentStr.replace(/\d+/, String(parsed));
+  } else {
+    updatedString = String(parsed);
+  }
+
+  item.readingChapter = updatedString;
+  pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
+
+  const card = document.querySelector(`.item-card[data-id="${itemId}"]`);
+  if (card) {
+    const valSpan = card.querySelector('.chapter-stepper-val');
+    if (valSpan) valSpan.textContent = updatedString;
+  }
+
+  saveData();
+  await syncItemToSupabase(item);
+  showToastNotice(`Capitolo di "${item.title}" impostato a ${parsed}`);
+}
+
 // STEPPER RAPIDO NUMERO VOLUME (+1 / -1) IN POSSEDUTI
 async function updateVolumeStep(itemId, delta) {
   const item = appData.items.find(i => i.id === itemId);
@@ -1211,7 +1252,7 @@ function checkAndTriggerTodayNotifications() {
     try {
       new Notification(titleText, {
         body: bodyText,
-        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%230d0e12'/><circle cx='96' cy='96' r='48' fill='%2338bdf8'/></svg>"
+        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%2338bdf8'/></svg>"
       });
       localStorage.setItem('last_notified_date', todayStr);
     } catch (e) {}
@@ -1315,11 +1356,16 @@ function createItemCard(item, isCompact, medalIcon = null) {
   if (item.set === 'Posseduti') {
     const rawChap = item.readingChapter || '0';
     chapterTrackerHtml = `
-      <div class="chapter-stepper-wrap" title="Avanzamento rapido capitolo letto">
+      <div class="chapter-stepper-wrap" title="Avanzamento rapido capitolo">
         <span class="chapter-stepper-label">Cap:</span>
         <button type="button" class="chapter-step-btn step-minus" aria-label="Capitolo precedente">-</button>
-        <span class="chapter-stepper-val">${escapeHtml(rawChap)}</span>
+        <span class="chapter-stepper-val" title="Clicca per inserire il numero a mano">${escapeHtml(rawChap)}</span>
         <button type="button" class="chapter-step-btn step-plus" aria-label="Capitolo successivo">+</button>
+        <button type="button" class="chapter-edit-pencil" title="Inserisci numero capitolo a mano" aria-label="Modifica numero capitolo">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+          </svg>
+        </button>
       </div>
     `;
   }
@@ -1346,7 +1392,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
     const gapDisplay = item.missingGapNotice ? `<span class="gap-badge" title="Volumi intermedi non ancora registrati">${escapeHtml(item.missingGapNotice)}</span>` : '';
     const volNumText = item.number ? escapeHtml(item.number) : '1';
     
-    // Stepper rapido +1 / -1 per il numero volume in Posseduti
     mainValueHtml = `
       ${gapDisplay}
       <div class="volume-stepper-wrap" title="Modifica rapida volume">
@@ -1424,7 +1469,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
     </div>
   `;
 
-  // Click sul badge Letto per cambiare stato al volo
   const readBadgeElem = card.querySelector('.read-badge');
   if (readBadgeElem) {
     readBadgeElem.addEventListener('click', (e) => {
@@ -1433,7 +1477,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
     });
   }
 
-  // Stepper rapido sul numero volume in Posseduti
   const volStepMinus = card.querySelector('.vol-step-minus');
   const volStepPlus = card.querySelector('.vol-step-plus');
   if (volStepMinus) {
@@ -1447,6 +1490,38 @@ function createItemCard(item, isCompact, medalIcon = null) {
       e.stopPropagation();
       updateVolumeStep(item.id, 1);
     });
+  }
+
+  if (item.set === 'Posseduti') {
+    const stepMinus = card.querySelector('.step-minus');
+    const stepPlus = card.querySelector('.step-plus');
+    const chapVal = card.querySelector('.chapter-stepper-val');
+    const chapPencil = card.querySelector('.chapter-edit-pencil');
+
+    if (stepMinus) {
+      stepMinus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        updateChapterStep(item.id, -1);
+      });
+    }
+    if (stepPlus) {
+      stepPlus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        updateChapterStep(item.id, 1);
+      });
+    }
+    if (chapVal) {
+      chapVal.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setManualChapter(item.id);
+      });
+    }
+    if (chapPencil) {
+      chapPencil.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setManualChapter(item.id);
+      });
+    }
   }
 
   const nameElement = card.querySelector('.item-name');
@@ -1486,24 +1561,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
 
       renderList();
     });
-  }
-
-  if (item.set === 'Posseduti') {
-    const stepMinus = card.querySelector('.step-minus');
-    const stepPlus = card.querySelector('.step-plus');
-
-    if (stepMinus) {
-      stepMinus.addEventListener('click', (e) => {
-        e.stopPropagation();
-        updateChapterStep(item.id, -1);
-      });
-    }
-    if (stepPlus) {
-      stepPlus.addEventListener('click', (e) => {
-        e.stopPropagation();
-        updateChapterStep(item.id, 1);
-      });
-    }
   }
 
   const nextBtn = card.querySelector('.next-btn');
@@ -2418,7 +2475,6 @@ itemForm.addEventListener('submit', (e) => {
       return;
     }
 
-    // Se NON è Variant, blocca lo stesso volume. Se è Variant, consente numeri doppi!
     if (!isVariantChecked) {
       const duplicateSame = appData.items.find(i => 
         i.title.toLowerCase() === title.toLowerCase() &&
