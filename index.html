@@ -10,11 +10,18 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Collezione">
 
+  <!-- Font Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
 
+  <!-- Fogli di stile CSS suddivisi nei 4 moduli -->
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/modals.css">
+  <link rel="stylesheet" href="css/responsive.css">
+
+  <!-- CDN Esterne per Supabase e Scanner Barcode HTML5 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
@@ -213,8 +220,11 @@
       </div>
 
       <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri temporali"></div>
+      
+      <!-- Griglia Card a 3 colonne -->
       <div class="cards-flow" id="contentList" aria-live="polite"></div>
 
+      <!-- Sezione Accordion Già Acquistati -->
       <section class="purchased-section" id="purchasedSection" style="display: none;">
         <button class="accordion-header" id="togglePurchasedBtn" type="button" aria-expanded="false" aria-controls="purchasedList">
           <div class="accordion-title">
@@ -231,6 +241,8 @@
       </section>
     </main>
   </div>
+
+  <!-- ======================= FINESTRE MODALI ======================= -->
 
   <!-- MODALE: MANGA SPINE SHELF 3D (SCAFFALE COSTE) -->
   <div class="modal-backdrop" id="shelfModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="shelfSeriesTitle">
@@ -750,6 +762,7 @@
     </svg>
   </button>
 
-  <script src="app.js"></script>
+  <!-- Collegamento diretto allo script in js/main.js -->
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
