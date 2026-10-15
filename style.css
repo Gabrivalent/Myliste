@@ -273,6 +273,39 @@ body {
   pointer-events: none;
 }
 
+/* TENDINA STORICO */
+.history-dropdown-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.history-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 270px;
+  max-height: 340px;
+  overflow-y: auto;
+  background-color: var(--bg-modal);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.65);
+  padding: 6px;
+  z-index: 250;
+  backdrop-filter: blur(8px);
+}
+
+.history-dropdown-menu.open {
+  display: block;
+  animation: modalEnter 0.15s ease-out;
+}
+
+.history-dropdown-row:hover {
+  background-color: var(--bg-card-hover);
+  border-radius: 6px;
+}
+
 .filter-dropdown-pill {
   position: relative;
   display: inline-flex;
@@ -450,6 +483,7 @@ body {
     gap: 0.55rem;
   }
 }
+
 .month-group-header {
   grid-column: 1 / -1;
   position: sticky;
@@ -811,8 +845,36 @@ body {
   font-size: 0.78rem;
   font-weight: 700;
   color: var(--accent-cyan);
-  min-width: 22px;
+  min-width: 26px;
   text-align: center;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.chapter-stepper-val:hover {
+  background-color: rgba(56, 189, 248, 0.15);
+  text-decoration: underline;
+}
+
+.chapter-edit-pencil {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 1px 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.chapter-edit-pencil:hover,
+.chapter-edit-pencil:active {
+  color: var(--accent-cyan);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .chapter-step-btn {
@@ -1083,7 +1145,6 @@ body {
   height: 100% !important;
 }
 
-/* Regole vincolanti per domare la libreria html5-qrcode su mobile */
 #checkerCameraReader video,
 #scannerReader video {
   width: 100% !important;
@@ -1462,7 +1523,6 @@ input:focus, select:focus { border-color: var(--accent-cyan); box-shadow: 0 0 0 
     gap: 0.55rem;
   }
 
-  /* PROTEZIONE ANTI-COLLISIONE CARD SU MOBILE */
   .item-card {
     padding: 0.75rem 0.85rem;
     gap: 0.5rem;

@@ -120,7 +120,7 @@ if (loginForm) {
     if (authErrorMsg) authErrorMsg.style.display = 'none';
 
     try {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
+      const { error } = await supabaseClient.auth.signInWithPassword({
         email,
         password
       });
@@ -149,7 +149,7 @@ if (logoutBtn) {
 }
 
 // ----------------------------------------------------
-// REALTIME & DATI SUPABASE (SENZA user_id)
+// REALTIME & DATI SUPABASE (SENZA user_id NEL PAYLOAD)
 // ----------------------------------------------------
 function setupRealtimeSubscriptions() {
   if (!supabaseClient || !currentUser) return;
@@ -216,7 +216,8 @@ function formatRowToItem(row) {
     isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
     missingGapNotice: row.missing_gap_notice,
     readingChapter: row.reading_chapter || '',
-    privateComment: row.private_comment || ''
+    privateComment: row.private_comment || '',
+    createdAt: row.created_at || new Date().toISOString()
   };
 }
 
@@ -270,7 +271,7 @@ async function syncItemToSupabase(item) {
       is_read: Boolean(item.isRead),
       missing_gap_notice: item.missingGapNotice || null,
       reading_chapter: item.readingChapter || null,
-      private_comment: item.privateComment || null
+      private_comment: item.privateComment || ''
     };
 
     const { error } = await supabaseClient.from('items').upsert(payload);
@@ -300,7 +301,7 @@ async function syncBatchItemsToSupabase(itemsArray) {
       is_read: Boolean(item.isRead),
       missing_gap_notice: item.missingGapNotice || null,
       reading_chapter: item.readingChapter || null,
-      private_comment: item.privateComment || null
+      private_comment: item.privateComment || ''
     }));
 
     const { error } = await supabaseClient.from('items').upsert(payload);
@@ -360,6 +361,7 @@ appData.items.forEach(item => {
   if (typeof item.readingChapter === 'undefined') item.readingChapter = '';
   if (typeof item.privateComment === 'undefined') item.privateComment = '';
   if (item.rating && item.rating <= 5) item.rating = item.rating * 20;
+  if (!item.createdAt) item.createdAt = new Date().toISOString();
 });
 
 let activeSet = localStorage.getItem('pref_set') || 'Acquisti';
@@ -498,6 +500,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
+// Supporto giroscopio foil
 if (window.DeviceOrientationEvent) {
   window.addEventListener('deviceorientation', (event) => {
     if (event.gamma !== null) {
@@ -505,6 +508,69 @@ if (window.DeviceOrientationEvent) {
       document.documentElement.style.setProperty('--foil-angle', `${angle}deg`);
     }
   }, { passive: true });
+}
+
+// ----------------------------------------------------
+// SINCRONIZZAZIONE AUTOMATICA POSSEDUTI -> VOTI
+// ----------------------------------------------------
+async function ensureItemInVoti(title, category) {
+  const titleClean = title.trim().toLowerCase();
+  const catClean = (category || 'Generale').trim().toLowerCase();
+
+  const existsInVoti = appData.items.some(
+    i => i.set === 'Voti' &&
+         i.title.trim().toLowerCase() === titleClean &&
+         (i.category || 'Generale').trim().toLowerCase() === catClean
+  );
+
+  if (!existsInVoti) {
+    const votiItem = {
+      id: generateUniqueId(),
+      title: title.trim(),
+      set: 'Voti',
+      category: category || 'Generale',
+      date: null,
+      number: null,
+      rating: null,
+      unplayed: true,
+      purchased: false,
+      completed: false,
+      isRead: false,
+      isVariant: false,
+      missingGapNotice: null,
+      readingChapter: '',
+      privateComment: '',
+      createdAt: new Date().toISOString()
+    };
+    appData.items.unshift(votiItem);
+    saveData();
+    await syncItemToSupabase(votiItem);
+  }
+}
+
+// ----------------------------------------------------
+// CALCOLO BUCHI NUMERICI DI UNA COLLANA
+// ----------------------------------------------------
+function calculateMissingGaps(volumesArray) {
+  const nums = volumesArray
+    .filter(v => !v.isVariant)
+    .map(v => parseInt(v.number, 10))
+    .filter(n => !isNaN(n) && n > 0);
+
+  if (nums.length < 2) return [];
+
+  nums.sort((a, b) => a - b);
+  const min = nums[0];
+  const max = nums[nums.length - 1];
+  const presentSet = new Set(nums);
+  const missing = [];
+
+  for (let i = min; i <= max; i++) {
+    if (!presentSet.has(i)) {
+      missing.push(i);
+    }
+  }
+  return missing;
 }
 
 // Elementi DOM Principali
@@ -748,7 +814,6 @@ categoryFilter.addEventListener('change', (e) => {
   renderList();
 });
 
-// Ordinamento per insieme attivo
 toggleSortBtn.addEventListener('click', () => {
   let mode = getCurrentSortMode();
   if (mode === 'date') mode = 'name';
@@ -789,6 +854,14 @@ function updateFilterBarChips() {
       <button class="time-chip ${activeTimeFilter === 'week' ? 'active' : ''}" data-filter="week" type="button">Questa Settimana</button>
       <button class="time-chip ${activeTimeFilter === 'month' ? 'active' : ''}" data-filter="month" type="button">Questo Mese</button>
       <button class="time-chip ${activeTimeFilter === 'nodate' ? 'active' : ''}" data-filter="nodate" type="button">Senza Data</button>
+    `;
+  } else if (activeSet === 'Posseduti') {
+    timeFilterRow.style.display = 'flex';
+    timeFilterRow.innerHTML = `
+      <button class="time-chip ${activeTimeFilter === 'all' ? 'active' : ''}" data-filter="all" type="button">Tutti</button>
+      <button class="time-chip ${activeTimeFilter === 'regular' ? 'active' : ''}" data-filter="regular" type="button">Regolari</button>
+      <button class="time-chip ${activeTimeFilter === 'variant' ? 'active' : ''}" data-filter="variant" type="button">★ Solo Variant</button>
+      <button class="time-chip ${activeTimeFilter === 'unread' ? 'active' : ''}" data-filter="unread" type="button">Da Leggere</button>
     `;
   } else if (activeSet === 'Voti') {
     timeFilterRow.style.display = 'flex';
@@ -869,6 +942,10 @@ function matchesActiveFilter(item) {
 
       return itemDateObj >= monday && itemDateObj <= sunday;
     }
+  } else if (activeSet === 'Posseduti') {
+    if (activeTimeFilter === 'variant') return Boolean(item.isVariant);
+    if (activeTimeFilter === 'regular') return !item.isVariant;
+    if (activeTimeFilter === 'unread') return !item.isRead;
   } else if (activeSet === 'Voti') {
     if (activeTimeFilter === 'unplayed') return item.unplayed === true;
     if (activeTimeFilter === 'scored') return item.unplayed !== true && item.rating !== null && item.rating !== undefined;
@@ -921,6 +998,8 @@ function renderList() {
 
   if (activeSet === 'Acquisti') {
     renderPurchasesLayout(filtered);
+  } else if (activeSet === 'Posseduti') {
+    renderPossedutiAggregatedLayout(filtered);
   } else {
     purchasedSection.style.display = 'none';
     renderStandardLayout(filtered);
@@ -1004,6 +1083,216 @@ function renderPurchasesLayout(items) {
   });
 }
 
+// ----------------------------------------------------
+// ACCORPAMENTO PER OPERA NEI POSSEDUTI
+// ----------------------------------------------------
+function renderPossedutiAggregatedLayout(items) {
+  purchasedSection.style.display = 'none';
+  const filtered = items.filter(matchesActiveFilter);
+
+  if (filtered.length === 0) {
+    contentList.innerHTML = `<div class="empty-state-box">Nessun volume posseduto con questi filtri.</div>`;
+    return;
+  }
+
+  if (activeTimeFilter === 'variant') {
+    sortItems(filtered).forEach(item => {
+      contentList.appendChild(createItemCard(item, false));
+    });
+    return;
+  }
+
+  const seriesMap = new Map();
+  filtered.forEach(item => {
+    const key = `${item.title.trim().toLowerCase()}|||${(item.category || 'Generale').trim().toLowerCase()}`;
+    if (!seriesMap.has(key)) {
+      seriesMap.set(key, []);
+    }
+    seriesMap.get(key).push(item);
+  });
+
+  const aggregatedSeriesList = [];
+
+  seriesMap.forEach((vols) => {
+    const regularVols = vols.filter(v => !v.isVariant);
+    const variantVols = vols.filter(v => v.isVariant);
+
+    regularVols.sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
+
+    const highestVolItem = regularVols.length > 0 
+      ? regularVols[regularVols.length - 1] 
+      : vols[0];
+
+    const missingGaps = calculateMissingGaps(regularVols);
+
+    aggregatedSeriesList.push({
+      representativeItem: highestVolItem,
+      allVolumes: vols,
+      regularCount: regularVols.length,
+      variantCount: variantVols.length,
+      missingGaps: missingGaps,
+      maxNumber: highestVolItem.number || '1'
+    });
+  });
+
+  aggregatedSeriesList.sort((a, b) => {
+    if (getCurrentSortMode() === 'name') {
+      return a.representativeItem.title.localeCompare(b.representativeItem.title);
+    }
+    return (parseInt(b.maxNumber, 10) || 0) - (parseInt(a.maxNumber, 10) || 0);
+  });
+
+  aggregatedSeriesList.forEach(series => {
+    contentList.appendChild(createPossedutiAggregatedCard(series));
+  });
+}
+
+function createPossedutiAggregatedCard(series) {
+  const item = series.representativeItem;
+  const card = document.createElement('div');
+  card.dataset.id = item.id;
+  const catName = escapeHtml(item.category || 'Generale');
+  const catColor = getCategoryColor(item.category || 'Generale');
+
+  const hasGaps = series.missingGaps.length > 0;
+  const statusClass = hasGaps ? 'status-orange' : 'status-green';
+  card.className = `item-card ${statusClass}`;
+
+  const gapBadgeHtml = hasGaps 
+    ? `<span class="gap-badge clickable-gap" title="Clicca per vedere i volumi mancanti">⚠️ Mancano ${series.missingGaps.length} vol.</span>` 
+    : '';
+
+  const variantBadgeHtml = series.variantCount > 0 
+    ? `<span class="foil-sparkle-badge" title="${series.variantCount} Variant possedute">★ ${series.variantCount} Variant</span>` 
+    : '';
+
+  const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
+  const readBadgeClass = item.isRead ? '' : 'is-unread';
+  const readHtml = `<span class="read-badge ${readBadgeClass}" title="Stato lettura">${item.isRead ? 'Letto' : 'In corso'}</span>`;
+
+  card.innerHTML = `
+    <div class="card-left-section">
+      <div class="item-main-details">
+        <div class="item-tags-row">
+          <span class="item-tag-inline" style="color: ${catColor};">${catName}</span>
+          ${completedHtml}
+          ${readHtml}
+          ${variantBadgeHtml}
+        </div>
+        <span class="item-name item-name-clickable" title="Clicca per aprire lo scaffale 3D della collana">${escapeHtml(item.title)}</span>
+        <div class="chapter-stepper-wrap" title="Avanzamento rapido capitolo letto">
+          <span class="chapter-stepper-label">Cap:</span>
+          <button type="button" class="chapter-step-btn step-minus" aria-label="Capitolo precedente">-</button>
+          <span class="chapter-stepper-val" title="Clicca per inserire il capitolo a mano">${escapeHtml(item.readingChapter || '0')}</span>
+          <button type="button" class="chapter-step-btn step-plus" aria-label="Capitolo successivo">+</button>
+          <button type="button" class="chapter-edit-pencil" title="Inserisci capitolo esatto a mano">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-right-section">
+      ${gapBadgeHtml}
+      <div class="volume-stepper-wrap" title="Ultimo volume posseduto">
+        <button type="button" class="vol-step-btn vol-step-minus" aria-label="Volume precedente">-</button>
+        <span class="item-num">#${escapeHtml(series.maxNumber)}</span>
+        <button type="button" class="vol-step-btn vol-step-plus" aria-label="Volume successivo">+</button>
+      </div>
+      <div class="card-actions">
+        <button class="icon-btn shelf-open-btn" title="Apri scaffale 3D" type="button">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/>
+          </svg>
+        </button>
+        <button class="icon-btn edit-btn" title="Modifica" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  `;
+
+  const gapBtn = card.querySelector('.clickable-gap');
+  if (gapBtn) {
+    gapBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showGapsDetailModal(item.title, series.missingGaps, item.category);
+    });
+  }
+
+  const shelfBtn = card.querySelector('.shelf-open-btn');
+  const nameBtn = card.querySelector('.item-name');
+  [shelfBtn, nameBtn].forEach(btn => {
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openMangaShelf3D(item.title, item.category);
+      });
+    }
+  });
+
+  const stepMinus = card.querySelector('.step-minus');
+  const stepPlus = card.querySelector('.step-plus');
+  const chapVal = card.querySelector('.chapter-stepper-val');
+  const chapPencil = card.querySelector('.chapter-edit-pencil');
+
+  if (stepMinus) stepMinus.addEventListener('click', (e) => { e.stopPropagation(); updateChapterStep(item.id, -1); });
+  if (stepPlus) stepPlus.addEventListener('click', (e) => { e.stopPropagation(); updateChapterStep(item.id, 1); });
+  if (chapVal) chapVal.addEventListener('click', (e) => { e.stopPropagation(); setManualChapter(item.id); });
+  if (chapPencil) chapPencil.addEventListener('click', (e) => { e.stopPropagation(); setManualChapter(item.id); });
+
+  const volMinus = card.querySelector('.vol-step-minus');
+  const volPlus = card.querySelector('.vol-step-plus');
+  if (volMinus) volMinus.addEventListener('click', (e) => { e.stopPropagation(); updateVolumeStep(item.id, -1); });
+  if (volPlus) volPlus.addEventListener('click', (e) => { e.stopPropagation(); updateVolumeStep(item.id, 1); });
+
+  card.querySelector('.edit-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openOverviewModal(item);
+  });
+
+  return card;
+}
+
+function showGapsDetailModal(seriesTitle, missingNumbers, category) {
+  const missingStr = missingNumbers.map(n => `#${n}`).join(', ');
+  const shouldAdd = confirm(
+    `Per "${seriesTitle}" mancano i seguenti volumi:\n${missingStr}\n\nVuoi aggiungere questi volumi mancanti alla tua lista Acquisti?`
+  );
+
+  if (shouldAdd) {
+    const newItems = missingNumbers.map(n => ({
+      id: generateUniqueId(),
+      title: seriesTitle,
+      set: 'Acquisti',
+      category: category || 'Generale',
+      date: null,
+      number: String(n),
+      rating: null,
+      unplayed: false,
+      purchased: false,
+      completed: false,
+      isRead: false,
+      isVariant: false,
+      missingGapNotice: null,
+      readingChapter: '',
+      privateComment: '',
+      createdAt: new Date().toISOString()
+    }));
+
+    appData.items.unshift(...newItems);
+    pushHistoryAction({ type: 'INSERT', data: newItems.map(i => ({ ...i })) });
+    saveData();
+    syncBatchItemsToSupabase(newItems);
+    renderList();
+    showToastNotice(`Aggiunti ${newItems.length} volumi mancanti agli Acquisti!`);
+  }
+}
+
 function renderStandardLayout(items) {
   const filtered = items.filter(matchesActiveFilter);
 
@@ -1026,101 +1315,54 @@ function renderStandardLayout(items) {
 }
 
 function syncPurchasedWithPosseduti(purchasedItem) {
-  const purchasedNum = parseInt(purchasedItem.number, 10);
-  const titleClean = purchasedItem.title.trim().toLowerCase();
   const itemCategory = purchasedItem.category || 'Generale';
 
-  const existingPosseduto = appData.items.find(
-    i => i.set === 'Posseduti' && 
-         i.title.trim().toLowerCase() === titleClean &&
-         (i.category || 'Generale') === itemCategory
-  );
+  const newItem = {
+    id: generateUniqueId(),
+    title: purchasedItem.title,
+    set: 'Posseduti',
+    category: itemCategory,
+    date: null,
+    number: purchasedItem.number || '1',
+    rating: null,
+    unplayed: false,
+    purchased: false,
+    completed: Boolean(purchasedItem.completed),
+    isRead: false,
+    isVariant: Boolean(purchasedItem.isVariant),
+    autoGeneratedFromPurchase: true,
+    missingGapNotice: null,
+    readingChapter: '',
+    privateComment: '',
+    createdAt: new Date().toISOString()
+  };
 
-  if (!existingPosseduto) {
-    const newItem = {
-      id: generateUniqueId(),
-      title: purchasedItem.title,
-      set: 'Posseduti',
-      category: itemCategory,
-      date: null,
-      number: purchasedItem.number || '1',
-      rating: null,
-      unplayed: false,
-      purchased: false,
-      completed: Boolean(purchasedItem.completed),
-      isRead: false,
-      isVariant: Boolean(purchasedItem.isVariant),
-      autoGeneratedFromPurchase: true,
-      missingGapNotice: null,
-      readingChapter: '',
-      privateComment: ''
-    };
-    appData.items.unshift(newItem);
-    syncItemToSupabase(newItem);
+  appData.items.unshift(newItem);
+  syncItemToSupabase(newItem);
 
-    showToastNotice(`"${purchasedItem.title}" aggiunto in Posseduti (Vol. #${purchasedItem.number || '1'})`);
-  } else {
-    const currentOwnedNum = parseInt(existingPosseduto.number, 10);
-
-    if (isNaN(purchasedNum) || isNaN(currentOwnedNum)) {
-      if (purchasedItem.number && existingPosseduto.number !== purchasedItem.number) {
-        existingPosseduto.number = purchasedItem.number;
-        syncItemToSupabase(existingPosseduto);
-        showToastNotice(`Aggiornato ${existingPosseduto.title} a #${purchasedItem.number}`);
-      }
-    } else if (purchasedNum === currentOwnedNum + 1) {
-      existingPosseduto.number = String(purchasedNum);
-      existingPosseduto.missingGapNotice = null;
-      syncItemToSupabase(existingPosseduto);
-      showToastNotice(`Posseduti aggiornato: ${existingPosseduto.title} ora al Vol. #${purchasedNum}`);
-    } else if (purchasedNum > currentOwnedNum + 1) {
-      const startMissing = currentOwnedNum + 1;
-      const endMissing = purchasedNum - 1;
-      const missingRange = (startMissing === endMissing) ? `#${startMissing}` : `#${startMissing} - #${endMissing}`;
-      
-      existingPosseduto.missingGapNotice = `Mancano vol. ${missingRange}`;
-      syncItemToSupabase(existingPosseduto);
-      showToastNotice(`⚠️ Attenzione: per "${existingPosseduto.title}" mancano i volumi ${missingRange}!`);
-    }
+  if (!newItem.isVariant) {
+    ensureItemInVoti(newItem.title, newItem.category);
   }
 
+  showToastNotice(`"${purchasedItem.title}" aggiunto in Posseduti (Vol. #${purchasedItem.number || '1'})`);
   saveData();
 }
 
 function rollbackPurchasedFromPosseduti(uncheckItem) {
-  const uncheckNum = parseInt(uncheckItem.number, 10);
   const titleClean = uncheckItem.title.trim().toLowerCase();
   const itemCategory = uncheckItem.category || 'Generale';
 
   const existingPosseduto = appData.items.find(
     i => i.set === 'Posseduti' && 
          i.title.trim().toLowerCase() === titleClean &&
-         (i.category || 'Generale') === itemCategory
+         (i.category || 'Generale') === itemCategory &&
+         String(i.number || '') === String(uncheckItem.number || '')
   );
 
-  if (!existingPosseduto) return;
-
-  const currentOwnedNum = parseInt(existingPosseduto.number, 10);
-
-  if (existingPosseduto.autoGeneratedFromPurchase && (existingPosseduto.number === uncheckItem.number)) {
+  if (existingPosseduto) {
     appData.items = appData.items.filter(i => i.id !== existingPosseduto.id);
     deleteItemFromSupabase(existingPosseduto.id);
     showToastNotice(`"${uncheckItem.title}" rimosso da Posseduti`);
-  } else if (!isNaN(uncheckNum) && !isNaN(currentOwnedNum) && currentOwnedNum === uncheckNum) {
-    const previousNum = currentOwnedNum - 1;
-    if (previousNum > 0) {
-      existingPosseduto.number = String(previousNum);
-      existingPosseduto.missingGapNotice = null;
-      syncItemToSupabase(existingPosseduto);
-      showToastNotice(`Posseduti: ${existingPosseduto.title} tornato al Vol. #${previousNum}`);
-    } else {
-      appData.items = appData.items.filter(i => i.id !== existingPosseduto.id);
-      deleteItemFromSupabase(existingPosseduto.id);
-      showToastNotice(`"${uncheckItem.title}" rimosso da Posseduti`);
-    }
-  } else if (existingPosseduto.missingGapNotice) {
-    existingPosseduto.missingGapNotice = null;
-    syncItemToSupabase(existingPosseduto);
   }
 
   saveData();
@@ -1156,7 +1398,6 @@ async function updateChapterStep(itemId, delta) {
   await syncItemToSupabase(item);
 }
 
-// Inserimento manuale diretto del capitolo (es. 1195)
 async function setManualChapter(itemId) {
   const item = appData.items.find(i => i.id === itemId);
   if (!item) return;
@@ -1170,7 +1411,7 @@ async function setManualChapter(itemId) {
 
   const parsed = parseInt(inputVal.trim(), 10);
   if (isNaN(parsed) || parsed < 0) {
-    alert("Inserisci un numero di capitolo valido (uguale o maggiore di 0).");
+    alert("Inserisci un numero di capitolo valido (maggiore o uguale a 0).");
     return;
   }
 
@@ -1196,7 +1437,6 @@ async function setManualChapter(itemId) {
   showToastNotice(`Capitolo di "${item.title}" impostato a ${parsed}`);
 }
 
-// STEPPER RAPIDO NUMERO VOLUME (+1 / -1) IN POSSEDUTI
 async function updateVolumeStep(itemId, delta) {
   const item = appData.items.find(i => i.id === itemId);
   if (!item) return;
@@ -1214,7 +1454,6 @@ async function updateVolumeStep(itemId, delta) {
   showToastNotice(`"${item.title}" aggiornato al Vol. #${nextNum}`);
 }
 
-// TOGGLE STATO "LETTO"
 async function toggleReadStatus(itemId) {
   const item = appData.items.find(i => i.id === itemId);
   if (!item) return;
@@ -1252,7 +1491,7 @@ function checkAndTriggerTodayNotifications() {
     try {
       new Notification(titleText, {
         body: bodyText,
-        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%2338bdf8'/></svg>"
+        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%230d0e12'/><circle cx='96' cy='96' r='48' fill='%2338bdf8'/></svg>"
       });
       localStorage.setItem('last_notified_date', todayStr);
     } catch (e) {}
@@ -1299,24 +1538,6 @@ function showToastNotice(message) {
   }, 4500);
 }
 
-async function shareItemDetails(item) {
-  const numStr = item.number ? ` #${item.number}` : '';
-  const dateStr = item.date ? ` (Uscita: ${formatDisplayDate(item.date)})` : '';
-  const shareText = `Dalla mia collezione: "${item.title}${numStr}" [${item.category || 'Generale'}]${dateStr}`;
-
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: item.title,
-        text: shareText
-      });
-    } catch (err) {}
-  } else {
-    navigator.clipboard.writeText(shareText);
-    showToastNotice('Dettagli copiati negli appunti!');
-  }
-}
-
 function getScoreBadgeClass(rating) {
   if (rating >= 95) return 'score-top';
   if (rating >= 85) return 'score-high';
@@ -1352,59 +1573,18 @@ function createItemCard(item, isCompact, medalIcon = null) {
     `;
   }
 
-  let chapterTrackerHtml = '';
-  if (item.set === 'Posseduti') {
-    const rawChap = item.readingChapter || '0';
-    chapterTrackerHtml = `
-      <div class="chapter-stepper-wrap" title="Avanzamento rapido capitolo">
-        <span class="chapter-stepper-label">Cap:</span>
-        <button type="button" class="chapter-step-btn step-minus" aria-label="Capitolo precedente">-</button>
-        <span class="chapter-stepper-val" title="Clicca per inserire il numero a mano">${escapeHtml(rawChap)}</span>
-        <button type="button" class="chapter-step-btn step-plus" aria-label="Capitolo successivo">+</button>
-        <button type="button" class="chapter-edit-pencil" title="Inserisci numero capitolo a mano" aria-label="Modifica numero capitolo">
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
-            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-          </svg>
-        </button>
-      </div>
-    `;
-  }
-
-  let dateHtml = '';
-  if (item.set === 'Acquisti') {
-    if (dateInfo.badgeType === 'today') {
-      dateHtml = `<span class="date-badge badge-today">OGGI</span>`;
-    } else if (dateInfo.badgeType === 'yesterday') {
-      dateHtml = `<span class="date-badge badge-yesterday">IERI</span>`;
-    } else if (dateInfo.badgeType === 'countdown') {
-      dateHtml = `<span class="date-badge badge-countdown">${dateInfo.badgeText}</span>`;
-    } else if (dateInfo.badgeText) {
-      dateHtml = `<span class="date-badge">${dateInfo.badgeText}</span>`;
-    }
-  }
-
   let mainValueHtml = '';
   if (item.set === 'Acquisti' || item.set === 'Liste') {
     if (item.number) {
       mainValueHtml = `<span class="item-num">#${escapeHtml(item.number)}</span>`;
     }
   } else if (item.set === 'Posseduti') {
-    const gapDisplay = item.missingGapNotice ? `<span class="gap-badge" title="Volumi intermedi non ancora registrati">${escapeHtml(item.missingGapNotice)}</span>` : '';
-    const volNumText = item.number ? escapeHtml(item.number) : '1';
-    
-    mainValueHtml = `
-      ${gapDisplay}
-      <div class="volume-stepper-wrap" title="Modifica rapida volume">
-        <button type="button" class="vol-step-btn vol-step-minus" aria-label="Volume precedente">-</button>
-        <span class="item-num">#${volNumText}</span>
-        <button type="button" class="vol-step-btn vol-step-plus" aria-label="Volume successivo">+</button>
-      </div>
-    `;
+    mainValueHtml = `<span class="item-num">#${escapeHtml(item.number || '1')}</span>`;
   } else if (item.set === 'Voti') {
     if (item.unplayed) {
       mainValueHtml = `
         <span class="unplayed-badge" title="Non ancora letto o giocato">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
             <path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/>
           </svg>
           Da iniziare
@@ -1419,16 +1599,15 @@ function createItemCard(item, isCompact, medalIcon = null) {
 
   let nextVolHtml = '';
   if (item.set === 'Acquisti' && item.number && !isNaN(parseInt(item.number, 10)) && !item.completed) {
-    nextVolHtml = `<button class="icon-btn next-btn" title="Crea volume successivo (+1)" aria-label="Crea volume successivo" type="button">+1</button>`;
+    nextVolHtml = `<button class="icon-btn next-btn" title="Crea volume successivo (+1)" type="button">+1</button>`;
   }
 
   const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
   const readBadgeClass = item.isRead ? '' : 'is-unread';
-  const readHtml = `<span class="read-badge ${readBadgeClass}" title="Clicca per segnare come letto/non letto">${item.isRead ? 'Letto' : 'Non letto'}</span>`;
+  const readHtml = item.set === 'Posseduti' 
+    ? `<span class="read-badge ${readBadgeClass}" title="Clicca per cambiare stato">${item.isRead ? 'Letto' : 'Non letto'}</span>` 
+    : '';
   const foilBadgeHtml = isVariant ? `<span class="foil-sparkle-badge">★ Variant</span>` : '';
-
-  const nameClickableClass = (item.set === 'Posseduti') ? 'item-name-clickable' : '';
-  const nameTitleAttr = (item.set === 'Posseduti') ? 'title="Clicca per aprire la libreria 3D della collana"' : '';
 
   card.innerHTML = `
     <div class="card-left-section">
@@ -1440,28 +1619,21 @@ function createItemCard(item, isCompact, medalIcon = null) {
           ${readHtml}
           ${foilBadgeHtml}
         </div>
-        <span class="item-name ${nameClickableClass}" ${nameTitleAttr}>${escapeHtml(item.title)}</span>
-        ${chapterTrackerHtml}
+        <span class="item-name">${escapeHtml(item.title)}</span>
       </div>
     </div>
 
     <div class="card-right-section">
-      ${dateHtml}
       ${mainValueHtml}
       ${nextVolHtml}
       <div class="card-actions">
-        <button class="icon-btn share-btn" title="Condividi" aria-label="Condividi dettagli" type="button">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-            <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92c0-1.61-1.31-2.92-2.92-2.92z"/>
-          </svg>
-        </button>
-        <button class="icon-btn edit-btn" title="Modifica" aria-label="Modifica elemento" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+        <button class="icon-btn edit-btn" title="Modifica" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
           </svg>
         </button>
-        <button class="icon-btn delete-btn" title="Elimina" aria-label="Elimina elemento" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+        <button class="icon-btn delete-btn" title="Elimina" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
           </svg>
         </button>
@@ -1477,63 +1649,8 @@ function createItemCard(item, isCompact, medalIcon = null) {
     });
   }
 
-  const volStepMinus = card.querySelector('.vol-step-minus');
-  const volStepPlus = card.querySelector('.vol-step-plus');
-  if (volStepMinus) {
-    volStepMinus.addEventListener('click', (e) => {
-      e.stopPropagation();
-      updateVolumeStep(item.id, -1);
-    });
-  }
-  if (volStepPlus) {
-    volStepPlus.addEventListener('click', (e) => {
-      e.stopPropagation();
-      updateVolumeStep(item.id, 1);
-    });
-  }
-
-  if (item.set === 'Posseduti') {
-    const stepMinus = card.querySelector('.step-minus');
-    const stepPlus = card.querySelector('.step-plus');
-    const chapVal = card.querySelector('.chapter-stepper-val');
-    const chapPencil = card.querySelector('.chapter-edit-pencil');
-
-    if (stepMinus) {
-      stepMinus.addEventListener('click', (e) => {
-        e.stopPropagation();
-        updateChapterStep(item.id, -1);
-      });
-    }
-    if (stepPlus) {
-      stepPlus.addEventListener('click', (e) => {
-        e.stopPropagation();
-        updateChapterStep(item.id, 1);
-      });
-    }
-    if (chapVal) {
-      chapVal.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setManualChapter(item.id);
-      });
-    }
-    if (chapPencil) {
-      chapPencil.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setManualChapter(item.id);
-      });
-    }
-  }
-
-  const nameElement = card.querySelector('.item-name');
-  if (item.set === 'Posseduti' && nameElement) {
-    nameElement.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openMangaShelf3D(item.title, item.category);
-    });
-  }
-
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.check-btn') || e.target.closest('.icon-btn') || e.target.closest('.chapter-stepper-wrap') || e.target.closest('.volume-stepper-wrap') || e.target.closest('.read-badge')) return;
+    if (e.target.closest('.check-btn') || e.target.closest('.icon-btn') || e.target.closest('.read-badge')) return;
     if (item.set === 'Posseduti') {
       openOverviewModal(item);
     } else {
@@ -1545,15 +1662,14 @@ function createItemCard(item, isCompact, medalIcon = null) {
     card.querySelector('.check-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       const prev = { ...item };
-      const willBePurchased = !item.purchased;
-      item.purchased = willBePurchased;
+      item.purchased = !item.purchased;
 
       pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
 
       saveData();
       syncItemToSupabase(item);
 
-      if (willBePurchased) {
+      if (item.purchased) {
         syncPurchasedWithPosseduti(item);
       } else {
         rollbackPurchasedFromPosseduti(item);
@@ -1571,11 +1687,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
     });
   }
 
-  card.querySelector('.share-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    shareItemDetails(item);
-  });
-
   card.querySelector('.edit-btn').addEventListener('click', (e) => {
     e.stopPropagation();
     openEditModal(item);
@@ -1590,7 +1701,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
 }
 
 // ----------------------------------------------------
-// SCAFFALE COSTE 3D (MANGA SPINE SHELF)
+// SCAFFALE COSTE 3D (REGOLARI CON BUCHI + RIPARTO VARIANT)
 // ----------------------------------------------------
 function openMangaShelf3D(seriesTitle, category) {
   shelfSeriesTitle.textContent = seriesTitle;
@@ -1604,8 +1715,11 @@ function openMangaShelf3D(seriesTitle, category) {
     i.title.toLowerCase() === seriesTitle.toLowerCase()
   );
 
+  const regularVols = ownedSeriesVolumes.filter(v => !v.isVariant);
+  const variantVols = ownedSeriesVolumes.filter(v => v.isVariant);
+
   const ownedNumbersMap = new Map();
-  ownedSeriesVolumes.forEach(it => {
+  regularVols.forEach(it => {
     const n = parseInt(it.number, 10);
     if (!isNaN(n)) ownedNumbersMap.set(n, it);
   });
@@ -1663,7 +1777,8 @@ function openMangaShelf3D(seriesTitle, category) {
             isVariant: false,
             missingGapNotice: null,
             readingChapter: '',
-            privateComment: ''
+            privateComment: '',
+            createdAt: new Date().toISOString()
           };
           appData.items.unshift(newItem);
           pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
@@ -1677,6 +1792,36 @@ function openMangaShelf3D(seriesTitle, category) {
 
       shelfSpineContainer.appendChild(ghost);
     }
+  }
+
+  if (variantVols.length > 0) {
+    const divider = document.createElement('div');
+    divider.style.width = '100%';
+    divider.style.padding = '12px 4px 6px';
+    divider.style.fontSize = '0.78rem';
+    divider.style.fontWeight = '800';
+    divider.style.color = 'var(--accent-cyan)';
+    divider.textContent = `★ Edizioni Variant (${variantVols.length})`;
+    shelfSpineContainer.appendChild(divider);
+
+    variantVols.forEach(vItem => {
+      const vSpine = document.createElement('div');
+      vSpine.className = 'manga-spine foil-hologram';
+      vSpine.style.backgroundColor = '#181a20';
+
+      vSpine.innerHTML = `
+        <span class="spine-vol-num" style="border-color: #fbbf24; color: #fbbf24;">#${escapeHtml(vItem.number || 'V')}</span>
+        <span class="spine-title-vertical">${escapeHtml(seriesTitle)} [Variant]</span>
+        <span class="foil-sparkle-badge" style="transform: rotate(90deg); margin-bottom: 8px;">VAR</span>
+      `;
+
+      vSpine.addEventListener('click', () => {
+        closeShelfModal();
+        openOverviewModal(vItem);
+      });
+
+      shelfSpineContainer.appendChild(vSpine);
+    });
   }
 
   shelfModalBackdrop.classList.add('active');
@@ -1694,17 +1839,10 @@ if (shelfModalBackdrop) {
 }
 
 // ----------------------------------------------------
-// VERIFICA BARCODE (SCHERMATA INTERA DEDICATA)
+// SCANNER BARCODE CON ANTEPRIMA SCHEDA & STORICO
 // ----------------------------------------------------
 function openCheckerModal() {
-  checkerResultBox.className = 'checker-result-box idle';
-  checkerSignalIcon.textContent = '📷';
-  checkerStatusTitle.textContent = 'Inquadra il codice a barre';
-  checkerStatusDesc.textContent = 'Punta la fotocamera sull\'ISBN per verificare se è già in collezione.';
-  checkerAddToAcquistiBtn.style.display = 'none';
-  checkerAddToPossedutiBtn.style.display = 'none';
-  lastDetectedCheckItem = null;
-
+  resetCheckerPreview();
   checkerModalBackdrop.classList.add('active');
 
   if (!checkerScanner) {
@@ -1717,11 +1855,21 @@ function openCheckerModal() {
     async (decodedText) => {
       await processBarcodeVerification(decodedText);
     },
-    (err) => {}
-  ).catch(err => {
+    () => {}
+  ).catch(() => {
     checkerStatusTitle.textContent = 'Fotocamera non disponibile';
-    checkerStatusDesc.textContent = 'Verifica di aver concesso i permessi per la fotocamera.';
+    checkerStatusDesc.textContent = 'Verifica i permessi della fotocamera nel browser.';
   });
+}
+
+function resetCheckerPreview() {
+  checkerResultBox.className = 'checker-result-box idle';
+  checkerSignalIcon.textContent = '📷';
+  checkerStatusTitle.textContent = 'Inquadra il codice a barre';
+  checkerStatusDesc.textContent = 'Punta la fotocamera sull\'ISBN per verificare se è già presente in collezione.';
+  checkerAddToAcquistiBtn.style.display = 'none';
+  checkerAddToPossedutiBtn.style.display = 'none';
+  lastDetectedCheckItem = null;
 }
 
 function stopCheckerModal() {
@@ -1740,7 +1888,7 @@ async function processBarcodeVerification(isbn) {
   }
 
   checkerSignalIcon.textContent = '⏳';
-  checkerStatusTitle.textContent = 'Ricerca dati ISBN in corso...';
+  checkerStatusTitle.textContent = 'Ricerca dati ISBN...';
   checkerStatusDesc.textContent = `Codice: ${isbn}`;
 
   try {
@@ -1750,63 +1898,88 @@ async function processBarcodeVerification(isbn) {
 
     let titleFound = '';
     let volumeFound = null;
+    let isVariant = false;
 
     if (data.items && data.items.length > 0) {
       const volumeInfo = data.items[0].volumeInfo;
-      titleFound = volumeInfo.title || '';
+      const rawTitle = volumeInfo.title || '';
+      const rawDesc = volumeInfo.description || '';
+
+      if (/variant|cover\s*[b-z]|limited|special\s*edition/i.test(`${rawTitle} ${rawDesc}`)) {
+        isVariant = true;
+      }
+
+      titleFound = rawTitle;
       const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
       if (numMatch) {
         titleFound = numMatch[1].trim();
         volumeFound = numMatch[2].trim();
       }
     } else {
-      titleFound = `Opera ISBN ${isbn}`;
+      titleFound = `Volume ISBN ${cleanIsbn}`;
     }
 
-    lastDetectedCheckItem = { title: titleFound, number: volumeFound };
-    const titleLower = titleFound.toLowerCase();
+    lastDetectedCheckItem = {
+      title: titleFound,
+      number: volumeFound || '1',
+      isVariant: isVariant
+    };
 
-    const inPosseduti = appData.items.find(i => 
-      i.set === 'Posseduti' && 
-      i.title.toLowerCase() === titleLower && 
-      (!volumeFound || String(i.number || '') === String(volumeFound))
-    );
-
-    const inOtherCollections = appData.items.find(i => 
-      (i.set === 'Voti' || i.set === 'Liste') && 
-      i.title.toLowerCase() === titleLower
-    );
-
-    if (inPosseduti) {
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      checkerResultBox.className = 'checker-result-box red-signal';
-      checkerSignalIcon.textContent = '⛔';
-      checkerStatusTitle.textContent = 'GIÀ PRESENTE IN COLLEZIONE!';
-      checkerStatusDesc.textContent = `"${inPosseduti.title}" ${inPosseduti.number ? '#' + inPosseduti.number : ''} è già registrato nei tuoi POSSEDUTI [${inPosseduti.category || 'Generale'}].`;
-      checkerAddToAcquistiBtn.style.display = 'none';
-      checkerAddToPossedutiBtn.style.display = 'none';
-    } else if (inOtherCollections) {
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      checkerResultBox.className = 'checker-result-box red-signal';
-      checkerSignalIcon.textContent = '⛔';
-      checkerStatusTitle.textContent = `PRESENTE IN ${inOtherCollections.set.toUpperCase()}!`;
-      checkerStatusDesc.textContent = `"${inOtherCollections.title}" è già memorizzato nella sezione ${inOtherCollections.set}.`;
-      checkerAddToAcquistiBtn.style.display = 'none';
-      checkerAddToPossedutiBtn.style.display = 'none';
-    } else {
-      if (navigator.vibrate) navigator.vibrate(80);
-      checkerResultBox.className = 'checker-result-box green-signal';
-      checkerSignalIcon.textContent = '✅';
-      checkerStatusTitle.textContent = 'NON PRESENTE: PUOI ACQUISTARLO!';
-      checkerStatusDesc.textContent = `"${titleFound}" ${volumeFound ? '#' + volumeFound : ''} NON risulta nei tuoi volumi posseduti.`;
-      checkerAddToAcquistiBtn.style.display = 'inline-flex';
-      checkerAddToPossedutiBtn.style.display = 'inline-flex';
-    }
+    displayBarcodeEvaluation();
   } catch (err) {
     checkerResultBox.className = 'checker-result-box idle';
     checkerSignalIcon.textContent = '⚠️';
     checkerStatusTitle.textContent = 'Errore di connessione';
     checkerStatusDesc.textContent = 'Impossibile verificare l\'ISBN sui server online.';
+  }
+}
+
+function displayBarcodeEvaluation() {
+  if (!lastDetectedCheckItem) return;
+
+  const { title, number, isVariant } = lastDetectedCheckItem;
+  const titleLower = title.toLowerCase();
+
+  const exactOwned = appData.items.find(i => 
+    i.set === 'Posseduti' && 
+    i.title.toLowerCase() === titleLower && 
+    String(i.number || '') === String(number) &&
+    Boolean(i.isVariant) === Boolean(isVariant)
+  );
+
+  if (exactOwned) {
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    checkerResultBox.className = 'checker-result-box red-signal';
+    checkerSignalIcon.textContent = '⛔';
+    checkerStatusTitle.textContent = isVariant ? 'VARIANT GIÀ IN COLLEZIONE!' : 'GIÀ PRESENTE IN COLLEZIONE!';
+    checkerStatusDesc.innerHTML = `
+      Possiedi già "${escapeHtml(title)} #${escapeHtml(number)}" nei tuoi Posseduti!
+    `;
+    checkerAddToAcquistiBtn.style.display = 'none';
+    checkerAddToPossedutiBtn.style.display = 'none';
+  } else {
+    if (navigator.vibrate) navigator.vibrate(80);
+    checkerResultBox.className = 'checker-result-box green-signal';
+    checkerSignalIcon.textContent = '✅';
+    checkerStatusTitle.textContent = 'NON PRESENTE: PUOI ACQUISTARLO!';
+    checkerStatusDesc.innerHTML = `
+      <div class="scanner-preview-card" style="background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; margin-top: 6px;">
+        <div style="font-weight: 700; color: #fff;">${escapeHtml(title)}</div>
+        <div style="font-size: 0.85rem; color: var(--accent-cyan);">Volume: #${escapeHtml(number)}</div>
+        <label class="checkbox-row" style="margin-top: 6px;">
+          <input type="checkbox" id="scannerVariantCheck" ${isVariant ? 'checked' : ''}>
+          <span class="custom-chk"></span>
+          <span style="font-size: 0.8rem; font-weight: 700;">★ Edizione Variant</span>
+        </label>
+      </div>
+    `;
+
+    document.getElementById('scannerVariantCheck').addEventListener('change', (e) => {
+      lastDetectedCheckItem.isVariant = e.target.checked;
+    });
+
+    checkerAddToAcquistiBtn.style.display = 'inline-flex';
+    checkerAddToPossedutiBtn.style.display = 'inline-flex';
   }
 }
 
@@ -1816,13 +1989,7 @@ if (closeCheckerModalBtn) closeCheckerModalBtn.addEventListener('click', stopChe
 
 if (checkerResetBtn) {
   checkerResetBtn.addEventListener('click', () => {
-    checkerResultBox.className = 'checker-result-box idle';
-    checkerSignalIcon.textContent = '📷';
-    checkerStatusTitle.textContent = 'Inquadra il codice a barre';
-    checkerStatusDesc.textContent = 'Punta la fotocamera sull\'ISBN per verificare se è già in collezione.';
-    checkerAddToAcquistiBtn.style.display = 'none';
-    checkerAddToPossedutiBtn.style.display = 'none';
-    lastDetectedCheckItem = null;
+    resetCheckerPreview();
     if (checkerScanner) {
       try { checkerScanner.resume(); } catch(e) {}
     }
@@ -1832,22 +1999,24 @@ if (checkerResetBtn) {
 if (checkerAddToAcquistiBtn) {
   checkerAddToAcquistiBtn.addEventListener('click', () => {
     if (!lastDetectedCheckItem) return;
+    const isVar = Boolean(lastDetectedCheckItem.isVariant);
     const newItem = {
       id: generateUniqueId(),
       title: lastDetectedCheckItem.title,
       set: 'Acquisti',
       category: 'Generale',
       date: null,
-      number: lastDetectedCheckItem.number || null,
+      number: lastDetectedCheckItem.number || '1',
       rating: null,
       unplayed: false,
       purchased: false,
       completed: false,
       isRead: false,
-      isVariant: false,
+      isVariant: isVar,
       missingGapNotice: null,
       readingChapter: '',
-      privateComment: ''
+      privateComment: '',
+      createdAt: new Date().toISOString()
     };
     appData.items.unshift(newItem);
     pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
@@ -1862,27 +2031,34 @@ if (checkerAddToAcquistiBtn) {
 if (checkerAddToPossedutiBtn) {
   checkerAddToPossedutiBtn.addEventListener('click', () => {
     if (!lastDetectedCheckItem) return;
+    const isVar = Boolean(lastDetectedCheckItem.isVariant);
     const newItem = {
       id: generateUniqueId(),
       title: lastDetectedCheckItem.title,
       set: 'Posseduti',
       category: 'Generale',
       date: null,
-      number: lastDetectedCheckItem.number || null,
+      number: lastDetectedCheckItem.number || '1',
       rating: null,
       unplayed: false,
       purchased: false,
       completed: false,
       isRead: false,
-      isVariant: false,
+      isVariant: isVar,
       missingGapNotice: null,
       readingChapter: '',
-      privateComment: ''
+      privateComment: '',
+      createdAt: new Date().toISOString()
     };
     appData.items.unshift(newItem);
     pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
     saveData();
     syncItemToSupabase(newItem);
+
+    if (!isVar) {
+      ensureItemInVoti(newItem.title, newItem.category);
+    }
+
     renderList();
     stopCheckerModal();
     showToastNotice(`"${newItem.title}" aggiunto ai Posseduti!`);
@@ -1892,6 +2068,107 @@ if (checkerAddToPossedutiBtn) {
 if (checkerModalBackdrop) {
   checkerModalBackdrop.addEventListener('click', (e) => {
     if (e.target === checkerModalBackdrop) stopCheckerModal();
+  });
+}
+
+// ----------------------------------------------------
+// TENDINA E MODALE STORICO RECENTI
+// ----------------------------------------------------
+function renderQuickHistoryDropdown() {
+  const container = document.getElementById('historyDropdownMenu');
+  if (!container) return;
+
+  const recentItems = [...appData.items]
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 8);
+
+  container.innerHTML = '';
+  if (recentItems.length === 0) {
+    container.innerHTML = '<div style="padding: 10px; font-size: 0.8rem; color: var(--text-dim);">Nessuna aggiunta recente</div>';
+    return;
+  }
+
+  recentItems.forEach(it => {
+    const row = document.createElement('div');
+    row.className = 'history-dropdown-row';
+    row.style.cssText = 'padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem; cursor: pointer;';
+    row.innerHTML = `
+      <div style="font-weight: 700; color: #fff;">${escapeHtml(it.title)} ${it.number ? '#' + it.number : ''} ${it.isVariant ? '★' : ''}</div>
+      <div style="font-size: 0.72rem; color: var(--text-dim);">${escapeHtml(it.set)} [${escapeHtml(it.category || 'Generale')}]</div>
+    `;
+    row.addEventListener('click', () => {
+      container.classList.remove('open');
+      openOverviewModal(it);
+    });
+    container.appendChild(row);
+  });
+
+  const expandAllBtn = document.createElement('button');
+  expandAllBtn.type = 'button';
+  expandAllBtn.className = 'btn-primary';
+  expandAllBtn.style.cssText = 'width: 100%; font-size: 0.78rem; padding: 6px; margin-top: 6px; border-radius: 6px;';
+  expandAllBtn.textContent = 'Espandi Tutto lo Storico';
+  expandAllBtn.addEventListener('click', () => {
+    container.classList.remove('open');
+    openFullHistoryModal();
+  });
+  container.appendChild(expandAllBtn);
+}
+
+function openFullHistoryModal() {
+  const modal = document.getElementById('fullHistoryModalBackdrop');
+  const listElem = document.getElementById('fullHistoryModalList');
+  if (!modal || !listElem) return;
+
+  const sortedAll = [...appData.items].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  listElem.innerHTML = '';
+  sortedAll.forEach(it => {
+    const d = document.createElement('div');
+    d.style.cssText = 'padding: 8px 12px; background: var(--bg-item-inner); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-card); display: flex; justify-content: space-between; align-items: center;';
+    d.innerHTML = `
+      <div>
+        <strong style="color: #fff;">${escapeHtml(it.title)} ${it.number ? '#' + it.number : ''}</strong>
+        <span style="font-size: 0.74rem; color: var(--text-dim); margin-left: 6px;">[${escapeHtml(it.set)}]</span>
+      </div>
+      <span style="font-size: 0.7rem; color: var(--accent-cyan);">${it.createdAt ? new Date(it.createdAt).toLocaleDateString('it-IT') : ''}</span>
+    `;
+    listElem.appendChild(d);
+  });
+
+  modal.classList.add('active');
+}
+
+const historyTopBtn = document.getElementById('historyDropdownBtn');
+if (historyTopBtn) {
+  historyTopBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const dropdown = document.getElementById('historyDropdownMenu');
+    if (dropdown) {
+      dropdown.classList.toggle('open');
+      if (dropdown.classList.contains('open')) {
+        renderQuickHistoryDropdown();
+      }
+    }
+  });
+}
+
+document.addEventListener('click', () => {
+  const dropdown = document.getElementById('historyDropdownMenu');
+  if (dropdown) dropdown.classList.remove('open');
+});
+
+const closeFullHistoryModalBtn = document.getElementById('closeFullHistoryModalBtn');
+const fullHistoryModalBackdrop = document.getElementById('fullHistoryModalBackdrop');
+
+if (closeFullHistoryModalBtn && fullHistoryModalBackdrop) {
+  closeFullHistoryModalBtn.addEventListener('click', () => {
+    fullHistoryModalBackdrop.classList.remove('active');
+  });
+  fullHistoryModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === fullHistoryModalBackdrop) {
+      fullHistoryModalBackdrop.classList.remove('active');
+    }
   });
 }
 
@@ -1985,7 +2262,8 @@ if (batchItemForm) {
           isVariant: false,
           missingGapNotice: null,
           readingChapter: '',
-          privateComment: ''
+          privateComment: '',
+          createdAt: new Date().toISOString()
         });
       }
     }
@@ -2001,6 +2279,11 @@ if (batchItemForm) {
     closeBatchModal();
 
     await syncBatchItemsToSupabase(createdItems);
+
+    if (set === 'Posseduti') {
+      ensureItemInVoti(title, cat);
+    }
+
     showToastNotice(`Aggiunti ${createdItems.length} volumi di "${title}"!`);
 
     if (activeSet !== set) {
@@ -2039,8 +2322,8 @@ if (startScanBtn) {
         stopScanner();
         await fetchBookDataByISBN(decodedText);
       },
-      (errorMessage) => {}
-    ).catch(err => {
+      () => {}
+    ).catch(() => {
       scannerStatus.textContent = 'Impossibile accedere alla fotocamera. Verifica i permessi.';
     });
   });
@@ -2290,7 +2573,8 @@ function createNextVolume(item) {
     isVariant: false,
     missingGapNotice: null,
     readingChapter: '',
-    privateComment: ''
+    privateComment: '',
+    createdAt: new Date().toISOString()
   };
 
   appData.items.unshift(newItem);
@@ -2465,14 +2749,16 @@ itemForm.addEventListener('submit', (e) => {
 
   // CONTROLLO DUPLICATI:
   if (!idToEdit) {
-    const duplicateInOther = appData.items.find(i => 
-      i.title.toLowerCase() === title.toLowerCase() &&
-      (i.set === 'Voti' || i.set === 'Liste')
-    );
+    if (set === 'Voti' || set === 'Liste') {
+      const duplicateInOther = appData.items.find(i => 
+        i.title.toLowerCase() === title.toLowerCase() &&
+        (i.set === 'Voti' || i.set === 'Liste')
+      );
 
-    if (duplicateInOther) {
-      alert(`Impossibile aggiungere: "${title}" è già presente nella sezione "${duplicateInOther.set}"!`);
-      return;
+      if (duplicateInOther) {
+        alert(`Impossibile aggiungere: "${title}" è già presente nella sezione "${duplicateInOther.set}"!`);
+        return;
+      }
     }
 
     if (!isVariantChecked) {
@@ -2552,10 +2838,15 @@ itemForm.addEventListener('submit', (e) => {
       purchased: false,
       missingGapNotice: null,
       readingChapter: '',
-      privateComment: ''
+      privateComment: '',
+      createdAt: new Date().toISOString()
     };
     appData.items.unshift(finalItem);
     pushHistoryAction({ type: 'INSERT', data: { ...finalItem } });
+
+    if (set === 'Posseduti' && !isVariantChecked) {
+      ensureItemInVoti(title, category);
+    }
   }
 
   saveData();
@@ -2607,6 +2898,7 @@ window.addEventListener('keydown', (e) => {
       closeOverviewModal();
       closeSettingsModal();
       if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
+      if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
     }
     return;
   }
@@ -2628,6 +2920,7 @@ window.addEventListener('keydown', (e) => {
     closeOverviewModal();
     closeSettingsModal();
     if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
+    if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
   }
 });
 
@@ -2810,7 +3103,8 @@ confirmExportBtn.addEventListener('click', () => {
       purchased: Boolean(item.purchased),
       missingGapNotice: item.missingGapNotice || null,
       readingChapter: item.readingChapter || '',
-      privateComment: item.privateComment || ''
+      privateComment: item.privateComment || '',
+      createdAt: item.createdAt || new Date().toISOString()
     }));
 
   const exportPayload = {
@@ -2917,12 +3211,18 @@ importJsonFileInput.addEventListener('change', (e) => {
           purchased: Boolean(incoming.purchased),
           missingGapNotice: incoming.missingGapNotice || null,
           readingChapter: incoming.readingChapter || '',
-          privateComment: incoming.privateComment || ''
+          privateComment: incoming.privateComment || '',
+          createdAt: incoming.createdAt || new Date().toISOString()
         };
 
         appData.items.unshift(newItem);
         newlyImported.push(newItem);
         syncItemToSupabase(newItem);
+
+        if (target === 'Posseduti' && !incomingIsVariant) {
+          ensureItemInVoti(newItem.title, newItem.category);
+        }
+
         importedCount++;
       });
 
@@ -2936,7 +3236,7 @@ importJsonFileInput.addEventListener('change', (e) => {
       closeSettingsModal();
       importJsonFileInput.value = '';
 
-      alert(`Importazione completata! Aggiunti: ${importedCount}, saltati perché già presenti: ${skippedCount}.`);
+      alert(`Importazione completata! Aggiunti: ${importedCount}, saltati: ${skippedCount}.`);
     } catch (err) {
       alert('Errore durante la lettura del file JSON: file corrotto o non leggibile.');
     }

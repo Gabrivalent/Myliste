@@ -167,6 +167,17 @@
             </button>
           </div>
 
+          <!-- TENDINA STORICO RECENTI -->
+          <div class="history-dropdown-wrapper">
+            <button class="sort-tag-btn" id="historyDropdownBtn" title="Mostra storico aggiunte recenti" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+              </svg>
+              <span>Storico</span>
+            </button>
+            <div class="history-dropdown-menu" id="historyDropdownMenu"></div>
+          </div>
+
           <button class="sort-tag-btn checker-quick-btn" id="openCheckerTopBtn" title="Scansiona per controllare se ce l'hai già" type="button">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
               <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
@@ -269,6 +280,17 @@
           <button type="button" class="btn-primary" id="checkerAddToPossedutiBtn" style="display: none;">+ Aggiungi ai Posseduti</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- MODALE STORICO COMPLETO -->
+  <div class="modal-backdrop" id="fullHistoryModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="fullHistoryTitle">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h2 id="fullHistoryTitle">Storico Aggiunte</h2>
+        <button type="button" class="close-btn" id="closeFullHistoryModalBtn" aria-label="Chiudi storico">&times;</button>
+      </div>
+      <div id="fullHistoryModalList" style="max-height: 60vh; overflow-y: auto; padding-right: 4px;"></div>
     </div>
   </div>
 
