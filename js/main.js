@@ -49,9 +49,7 @@ function setCloudStatus(status) {
   }
 }
 
-// 1. Generatore ID che non sfora il limite di int4 (max 2 miliardi)
 function generateUniqueId() {
-  // Genera un intero a 31 bit positivo (massimo 2.147.483.647)
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     const arr = new Uint32Array(1);
     crypto.getRandomValues(arr);
@@ -60,86 +58,6 @@ function generateUniqueId() {
   return Math.floor(Math.random() * 1900000000) + 1;
 }
 
-// 2. syncItemToSupabase senza forzatura di ID fittizi se non serve
-async function syncItemToSupabase(item) {
-  if (!supabaseClient || !currentUser) return;
-
-  try {
-    // NOTA CRITICA: non includere user_id o is_read (causano errore PGRST204 / 400)
-    const payload = {
-      title: item.title,
-      set_type: item.set,
-      category: item.category || 'Generale',
-      date: item.date || null,
-      number: item.number ? String(item.number) : null,
-      rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
-      unplayed: Boolean(item.unplayed),
-      purchased: Boolean(item.purchased),
-      completed: Boolean(item.completed),
-      missing_gap_notice: item.missingGapNotice || null,
-      reading_chapter: item.readingChapter || null,
-      private_comment: item.privateComment || ''
-    };
-
-    const numericId = parseInt(item.id, 10);
-    if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
-      payload.id = numericId;
-    }
-
-    const { data, error } = await supabaseClient
-      .from('items')
-      .upsert(payload)
-      .select();
-
-    if (error) throw error;
-
-    if (data && data[0] && data[0].id) {
-      item.id = Number(data[0].id);
-      saveData();
-    }
-
-    setCloudStatus('online');
-  } catch (err) {
-    console.error(`Errore sync item #${item.id}:`, err);
-    setCloudStatus('error');
-  }
-}
-// 3. syncBatchItemsToSupabase compatibile con int4
-async function syncBatchItemsToSupabase(itemsArray) {
-  if (!supabaseClient || !currentUser || itemsArray.length === 0) return;
-
-  try {
-    const payload = itemsArray.map(item => {
-      const obj = {
-        title: item.title,
-        set_type: item.set,
-        category: item.category || 'Generale',
-        date: item.date || null,
-        number: item.number ? String(item.number) : null,
-        rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
-        unplayed: Boolean(item.unplayed),
-        purchased: Boolean(item.purchased),
-        completed: Boolean(item.completed),
-        missing_gap_notice: item.missingGapNotice || null,
-        reading_chapter: item.readingChapter || null,
-        private_comment: item.privateComment || ''
-      };
-
-      const numericId = parseInt(item.id, 10);
-      if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
-        obj.id = numericId;
-      }
-      return obj;
-    });
-
-    const { error } = await supabaseClient.from('items').upsert(payload);
-    if (error) throw error;
-    setCloudStatus('online');
-  } catch (err) {
-    console.error('Errore sync batch items:', err);
-    setCloudStatus('error');
-  }
-}
 // ----------------------------------------------------
 // INIZIALIZZAZIONE & GESTIONE SESSIONE (AUTH)
 // ----------------------------------------------------
@@ -251,7 +169,7 @@ if (logoutBtn) {
 }
 
 // ----------------------------------------------------
-// REALTIME & DATI SUPABASE (SENZA user_id NEL PAYLOAD)
+// REALTIME & DATI SUPABASE (SENZA user_id O is_read)
 // ----------------------------------------------------
 function setupRealtimeSubscriptions() {
   if (!supabaseClient || !currentUser) return;
@@ -314,7 +232,7 @@ function formatRowToItem(row) {
     unplayed: Boolean(row.unplayed),
     purchased: Boolean(row.purchased),
     completed: Boolean(row.completed),
-    isRead: Boolean(row.is_read),
+    isRead: false,
     isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
     missingGapNotice: row.missing_gap_notice,
     readingChapter: row.reading_chapter || '',
@@ -355,7 +273,84 @@ async function fetchDataFromSupabase() {
   }
 }
 
+async function syncItemToSupabase(item) {
+  if (!supabaseClient || !currentUser) return;
 
+  try {
+    const payload = {
+      title: item.title,
+      set_type: item.set,
+      category: item.category || 'Generale',
+      date: item.date || null,
+      number: item.number ? String(item.number) : null,
+      rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
+      unplayed: Boolean(item.unplayed),
+      purchased: Boolean(item.purchased),
+      completed: Boolean(item.completed),
+      missing_gap_notice: item.missingGapNotice || null,
+      reading_chapter: item.readingChapter || null,
+      private_comment: item.privateComment || ''
+    };
+
+    const numericId = parseInt(item.id, 10);
+    if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
+      payload.id = numericId;
+    }
+
+    const { data, error } = await supabaseClient
+      .from('items')
+      .upsert(payload)
+      .select();
+
+    if (error) throw error;
+
+    if (data && data[0] && data[0].id) {
+      item.id = Number(data[0].id);
+      saveData();
+    }
+
+    setCloudStatus('online');
+  } catch (err) {
+    console.error(`Errore sync item #${item.id}:`, err);
+    setCloudStatus('error');
+  }
+}
+
+async function syncBatchItemsToSupabase(itemsArray) {
+  if (!supabaseClient || !currentUser || itemsArray.length === 0) return;
+
+  try {
+    const payload = itemsArray.map(item => {
+      const obj = {
+        title: item.title,
+        set_type: item.set,
+        category: item.category || 'Generale',
+        date: item.date || null,
+        number: item.number ? String(item.number) : null,
+        rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
+        unplayed: Boolean(item.unplayed),
+        purchased: Boolean(item.purchased),
+        completed: Boolean(item.completed),
+        missing_gap_notice: item.missingGapNotice || null,
+        reading_chapter: item.readingChapter || null,
+        private_comment: item.privateComment || ''
+      };
+
+      const numericId = parseInt(item.id, 10);
+      if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
+        obj.id = numericId;
+      }
+      return obj;
+    });
+
+    const { error } = await supabaseClient.from('items').upsert(payload);
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error('Errore sync batch items:', err);
+    setCloudStatus('error');
+  }
+}
 
 async function deleteItemFromSupabase(id) {
   if (!supabaseClient || !currentUser) return;
@@ -544,7 +539,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
-// Giroscopio per riflesso foil su smartphone
+// Supporto giroscopio per il riflesso foil sulle Variant
 if (window.DeviceOrientationEvent) {
   window.addEventListener('deviceorientation', (event) => {
     if (event.gamma !== null) {
@@ -1617,6 +1612,15 @@ function createItemCard(item, isCompact, medalIcon = null) {
     `;
   }
 
+  // Genera il badge della data per la sezione Acquisti se è presente una data
+  let dateBadgeHtml = '';
+  if (item.set === 'Acquisti' && item.date) {
+    const badgeClass = dateInfo.badgeType === 'today' ? 'badge-today' :
+                       dateInfo.badgeType === 'yesterday' ? 'badge-yesterday' :
+                       dateInfo.badgeType === 'countdown' ? 'badge-countdown' : '';
+    dateBadgeHtml = `<span class="date-badge ${badgeClass}">${escapeHtml(dateInfo.badgeText)}</span>`;
+  }
+
   let mainValueHtml = '';
   if (item.set === 'Acquisti' || item.set === 'Liste') {
     if (item.number) {
@@ -1668,6 +1672,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
     </div>
 
     <div class="card-right-section">
+      ${dateBadgeHtml}
       ${mainValueHtml}
       ${nextVolHtml}
       <div class="card-actions">
