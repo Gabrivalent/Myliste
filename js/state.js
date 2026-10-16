@@ -1,152 +1,96 @@
-// js/state.js
-import { STORAGE_KEYS, SECTIONS } from './config.js';
+import { STORAGE_KEYS } from './config.js';
 
-class StateManager {
-  constructor() {
-    this.items = this.loadInitialData();
-    this.currentSection = SECTIONS.POSSEDUTI;
-    this.searchQuery = "";
-    this.typeFilter = "all";
-    this.recentScans = this.loadRecentScans();
-    
-    // Ordinamenti indipendenti per sezione
-    this.sectionSorts = this.loadSortSettings();
+export const state = {
+  READONLY: true,
+  currentTheme: localStorage.getItem(STORAGE_KEYS.THEME) || 'default',
+  items: [],
+  dayMeta: {},
+  molt: {},
+  names: [],
+  categories: [],
+  isDirty: false,
+  filterCat: '',
+  filterIncomplete: false,
+  searchQuery: '',
+  undoStack: [],
+  pdfCandidates: [],
+  swRegistration: null,
+  ready: false,
+  mem: null
+};
 
-    // Stack Undo/Redo in memoria
-    this.undoStack = [];
-    this.redoStack = [];
-    this.maxHistory = 30;
+// Inizializzazione dati da localStorage
+try { state.items = JSON.parse(localStorage.getItem(STORAGE_KEYS.ITEMS)) || []; } catch(e) {}
+try { state.dayMeta = JSON.parse(localStorage.getItem(STORAGE_KEYS.DAYS)) || {}; } catch(e) {}
+try { state.molt = JSON.parse(localStorage.getItem(STORAGE_KEYS.MOLT)) || {}; } catch(e) {}
+try { state.names = JSON.parse(localStorage.getItem(STORAGE_KEYS.NAMES)) || []; } catch(e) {}
+try { state.categories = JSON.parse(localStorage.getItem(STORAGE_KEYS.CATEGORIES)) || []; } catch(e) {}
 
-    this.listeners = new Set();
-  }
+let onSaveCallback = null;
+let onBadgeUpdateCallback = null;
 
-  loadInitialData() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.APP_DATA);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  saveData() {
-    try {
-      localStorage.setItem(STORAGE_KEYS.APP_DATA, JSON.stringify(this.items));
-    } catch (err) {
-      console.error("Errore salvataggio localStorage:", err);
-    }
-    this.notify();
-  }
-
-  loadSortSettings() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.SORT_SETTINGS);
-      return raw ? JSON.parse(raw) : {
-        [SECTIONS.POSSEDUTI]: "title_asc",
-        [SECTIONS.ACQUISTI]: "updated_desc",
-        [SECTIONS.VOTI]: "rating_desc",
-        [SECTIONS.LISTE]: "title_asc"
-      };
-    } catch {
-      return {};
-    }
-  }
-
-  setSortOrder(section, sortKey) {
-    this.sectionSorts[section] = sortKey;
-    localStorage.setItem(STORAGE_KEYS.SORT_SETTINGS, JSON.stringify(this.sectionSorts));
-    this.notify();
-  }
-
-  getSortOrder(section) {
-    return this.sectionSorts[section] || "title_asc";
-  }
-
-  loadRecentScans() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.HISTORY_RECENT);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  addRecentScan(scanRecord) {
-    this.recentScans = [scanRecord, ...this.recentScans.filter(s => s.isbn !== scanRecord.isbn)].slice(0, 20);
-    localStorage.setItem(STORAGE_KEYS.HISTORY_RECENT, JSON.stringify(this.recentScans));
-  }
-
-  // Registrazione Observer
-  subscribe(fn) {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  }
-
-  notify() {
-    this.listeners.forEach(fn => fn(this));
-  }
-
-  // --- Snapshot per Undo / Redo ---
-  pushSnapshot() {
-    const snapshot = JSON.stringify(this.items);
-    this.undoStack.push(snapshot);
-    if (this.undoStack.length > this.maxHistory) {
-      this.undoStack.shift();
-    }
-    this.redoStack = []; // Resetta redo su nuova operazione
-    this.updateUndoRedoButtons();
-  }
-
-  undo() {
-    if (this.undoStack.length === 0) return null;
-    const currentSnapshot = JSON.stringify(this.items);
-    this.redoStack.push(currentSnapshot);
-    const prevSnapshot = this.undoStack.pop();
-    this.items = JSON.parse(prevSnapshot);
-    this.saveData();
-    this.updateUndoRedoButtons();
-    return this.items;
-  }
-
-  redo() {
-    if (this.redoStack.length === 0) return null;
-    const currentSnapshot = JSON.stringify(this.items);
-    this.undoStack.push(currentSnapshot);
-    const nextSnapshot = this.redoStack.pop();
-    this.items = JSON.parse(nextSnapshot);
-    this.saveData();
-    this.updateUndoRedoButtons();
-    return this.items;
-  }
-
-  updateUndoRedoButtons() {
-    const btnUndo = document.getElementById("btnUndo");
-    const btnRedo = document.getElementById("btnRedo");
-    if (btnUndo) btnUndo.disabled = this.undoStack.length === 0;
-    if (btnRedo) btnRedo.disabled = this.redoStack.length === 0;
-  }
-
-  // CRUD Locale
-  upsertItemLocally(item) {
-    this.pushSnapshot();
-    const idx = this.items.findIndex(i => i.id === item.id);
-    if (idx >= 0) {
-      this.items[idx] = { ...this.items[idx], ...item, updated_at: new Date().toISOString() };
-    } else {
-      this.items.push({
-        ...item,
-        created_at: item.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    }
-    this.saveData();
-  }
-
-  deleteItemLocally(id) {
-    this.pushSnapshot();
-    this.items = this.items.filter(i => i.id !== id);
-    this.saveData();
-  }
+export function registerStateCallbacks({ onSave, onBadgeUpdate }) {
+  onSaveCallback = onSave;
+  onBadgeUpdateCallback = onBadgeUpdate;
 }
 
-export const state = new StateManager();
+export const saveLocalOnly = () => {
+  try { localStorage.setItem(STORAGE_KEYS.ITEMS, JSON.stringify(state.items)); } catch(e) {}
+  if (onBadgeUpdateCallback) onBadgeUpdateCallback();
+  state.isDirty = true;
+};
+
+export const saveDLocalOnly = () => {
+  try { localStorage.setItem(STORAGE_KEYS.DAYS, JSON.stringify(state.dayMeta)); } catch(e) {}
+  state.isDirty = true;
+};
+
+export const saveMoltLocal = () => {
+  try { localStorage.setItem(STORAGE_KEYS.MOLT, JSON.stringify(state.molt)); } catch(e) {}
+  state.isDirty = true;
+};
+
+export const saveNamesLocal = () => {
+  try { localStorage.setItem(STORAGE_KEYS.NAMES, JSON.stringify(state.names)); } catch(e) {}
+  state.isDirty = true;
+};
+
+export const saveCategoriesLocal = () => {
+  try { localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(state.categories)); } catch(e) {}
+  state.isDirty = true;
+};
+
+export const save = () => { saveLocalOnly(); if (onSaveCallback) onSaveCallback(); };
+export const saveD = () => { saveDLocalOnly(); if (onSaveCallback) onSaveCallback(); };
+export const saveMolt = () => { saveMoltLocal(); if (onSaveCallback) onSaveCallback(); };
+export const saveNames = () => { saveNamesLocal(); if (onSaveCallback) onSaveCallback(); };
+export const saveCategories = () => { saveCategoriesLocal(); if (onSaveCallback) onSaveCallback(); };
+
+export function applyTheme(themeName) {
+  state.currentTheme = themeName;
+  if (themeName === 'default') document.body.removeAttribute('data-theme');
+  else document.body.setAttribute('data-theme', themeName);
+  localStorage.setItem(STORAGE_KEYS.THEME, themeName);
+}
+
+export function pushUndo() {
+  state.undoStack.push(JSON.stringify({ items: state.items, dayMeta: state.dayMeta }));
+  if (state.undoStack.length > 20) state.undoStack.shift();
+  refreshUndoBtn();
+}
+
+export function refreshUndoBtn() {
+  const b = document.querySelector('#undoBtn');
+  if (b) b.disabled = !state.undoStack.length;
+}
+
+export function popUndoState() {
+  if (state.READONLY || !state.undoStack.length) return false;
+  const prev = JSON.parse(state.undoStack.pop());
+  state.items = prev.items;
+  state.dayMeta = prev.dayMeta;
+  save();
+  saveD();
+  refreshUndoBtn();
+  return true;
+}

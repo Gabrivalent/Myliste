@@ -539,7 +539,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
-// Supporto giroscopio per il riflesso foil sulle Variant
+// Giroscopio foil su smartphone
 if (window.DeviceOrientationEvent) {
   window.addEventListener('deviceorientation', (event) => {
     if (event.gamma !== null) {
@@ -1612,7 +1612,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
     `;
   }
 
-  // Genera il badge della data per la sezione Acquisti se è presente una data
+  // Genera il badge data per la sezione Acquisti
   let dateBadgeHtml = '';
   if (item.set === 'Acquisti' && item.date) {
     const badgeClass = dateInfo.badgeType === 'today' ? 'badge-today' :
@@ -3179,7 +3179,9 @@ confirmExportBtn.addEventListener('click', () => {
   closeSettingsModal();
 });
 
-// Importazione JSON
+// ----------------------------------------------------
+// IMPORTAZIONE JSON TOLLERANTE AI CAMPI MANCANTI
+// ----------------------------------------------------
 triggerImportBtn.addEventListener('click', () => {
   importJsonFileInput.click();
 });
@@ -3189,91 +3191,113 @@ importJsonFileInput.addEventListener('change', (e) => {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = (event) => {
+  reader.onload = async (event) => {
     try {
       const importedData = JSON.parse(event.target.result);
 
-      if (!importedData || !Array.isArray(importedData.items)) {
-        alert('Formato file non valido: proprietà "items" mancante.');
+      // Supporta sia formato oggetto { items: [...] } sia array diretto [...]
+      const itemsList = Array.isArray(importedData)
+        ? importedData
+        : (importedData && Array.isArray(importedData.items) ? importedData.items : null);
+
+      if (!itemsList) {
+        alert('Formato file non valido: impossibile trovare la lista degli elementi.');
         return;
       }
 
-      let importedCount = 0;
-      let skippedCount = 0;
-      const newlyImported = [];
-
-      if (Array.isArray(importedData.categoriesList)) {
+      if (importedData && Array.isArray(importedData.categoriesList)) {
         importedData.categoriesList.forEach(cat => {
-          if (!appData.categories.includes(cat)) {
+          if (cat && !appData.categories.includes(cat)) {
             appData.categories.push(cat);
           }
         });
         syncCategoriesToSupabase();
       }
 
-      importedData.items.forEach(incoming => {
-        if (!incoming.title) return;
+      let importedCount = 0;
+      let skippedCount = 0;
+      const newlyImported = [];
 
-        const target = incoming.targetSet || incoming.set || 'Acquisti';
-        const category = incoming.category || 'Generale';
-        const incomingIsVariant = Boolean(incoming.isVariant || (incoming.number && String(incoming.number).toLowerCase().includes('variant')));
+      for (const incoming of itemsList) {
+        if (!incoming) continue;
+
+        // Fallback per il titolo: non fallisce se vuoto
+        const title = (incoming.title || incoming.name || 'Senza Titolo').toString().trim();
+        const target = incoming.targetSet || incoming.set || incoming.section || 'Acquisti';
+        const category = (incoming.category || 'Generale').toString().trim();
+        
+        const incomingNumber = incoming.number !== undefined && incoming.number !== null 
+          ? String(incoming.number).trim() 
+          : (incoming.volume !== undefined && incoming.volume !== null ? String(incoming.volume).trim() : null);
+
+        const incomingIsVariant = Boolean(
+          incoming.isVariant || 
+          incoming.is_variant || 
+          (incomingNumber && incomingNumber.toLowerCase().includes('variant'))
+        );
 
         if (!appData.categories.includes(category)) {
           appData.categories.push(category);
         }
 
         const isDuplicateGlobally = appData.items.some(existing => 
-          existing.title.toLowerCase() === incoming.title.toLowerCase() &&
-          (existing.set === 'Voti' || existing.set === 'Liste')
+          existing.title.toLowerCase() === title.toLowerCase() &&
+          (existing.set === 'Voti' || existing.set === 'Liste') &&
+          (target === 'Voti' || target === 'Liste')
         );
 
         const isDuplicateInSameSet = appData.items.some(existing => 
-          existing.title.toLowerCase() === incoming.title.toLowerCase() &&
+          existing.title.toLowerCase() === title.toLowerCase() &&
           existing.set === target &&
-          String(existing.number || '') === String(incoming.number || '') &&
+          String(existing.number || '') === String(incomingNumber || '') &&
           !incomingIsVariant &&
           !existing.isVariant
         );
 
         if (isDuplicateGlobally || isDuplicateInSameSet) {
           skippedCount++;
-          return;
+          continue;
         }
 
-        let incomingRating = incoming.rating;
-        if (incomingRating !== null && incomingRating !== undefined && incomingRating <= 5) {
-          incomingRating = incomingRating * 20;
+        // Supporto rating 0-5 o 0-100
+        let incomingRating = null;
+        if (incoming.rating !== undefined && incoming.rating !== null && incoming.rating !== '') {
+          const num = Number(incoming.rating);
+          if (!isNaN(num)) {
+            incomingRating = num <= 5 ? num * 20 : Math.min(100, Math.max(0, num));
+          }
         }
 
+        // Fallback per tutti i campi opzionali
         const newItem = {
-          id: incoming.id || generateUniqueId(),
-          title: incoming.title,
+          id: generateUniqueId(),
+          title: title,
           set: target,
           category: category,
           date: incoming.date || null,
-          number: incoming.number ? String(incoming.number) : null,
+          number: incomingNumber,
           completed: Boolean(incoming.completed),
-          isRead: Boolean(incoming.isRead),
-          rating: incomingRating !== undefined ? incomingRating : null,
+          isRead: Boolean(incoming.isRead || incoming.is_read),
+          rating: incomingRating,
           unplayed: Boolean(incoming.unplayed),
           isVariant: incomingIsVariant,
           purchased: Boolean(incoming.purchased),
-          missingGapNotice: incoming.missingGapNotice || null,
-          readingChapter: incoming.readingChapter || '',
-          privateComment: incoming.privateComment || '',
-          createdAt: incoming.createdAt || new Date().toISOString()
+          missingGapNotice: incoming.missingGapNotice || incoming.missing_gap_notice || null,
+          readingChapter: incoming.readingChapter || incoming.reading_chapter || incoming.current_chapter || '',
+          privateComment: incoming.privateComment || incoming.private_comment || incoming.notes || '',
+          createdAt: incoming.createdAt || incoming.created_at || new Date().toISOString()
         };
 
         appData.items.unshift(newItem);
         newlyImported.push(newItem);
-        syncItemToSupabase(newItem);
+        await syncItemToSupabase(newItem);
 
         if (target === 'Posseduti' && !incomingIsVariant) {
           ensureItemInVoti(newItem.title, newItem.category);
         }
 
         importedCount++;
-      });
+      }
 
       if (newlyImported.length > 0) {
         pushHistoryAction({ type: 'INSERT', data: newlyImported.map(i => ({ ...i })) });
@@ -3285,9 +3309,10 @@ importJsonFileInput.addEventListener('change', (e) => {
       closeSettingsModal();
       importJsonFileInput.value = '';
 
-      alert(`Importazione completata! Aggiunti: ${importedCount}, saltati: ${skippedCount}.`);
+      showToastNotice(`Importati ${importedCount} elementi (Saltati: ${skippedCount})`);
     } catch (err) {
-      alert('Errore durante la lettura del file JSON: file corrotto o non leggibile.');
+      console.error("Errore import JSON:", err);
+      alert('Errore durante la lettura del file: sintassi JSON non valida.');
     }
   };
 
