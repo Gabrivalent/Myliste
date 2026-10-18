@@ -239,7 +239,7 @@ body {
   gap: 1rem;
 }
 
-/* SCHERMATA LOGIN / AUTH */
+/* AUTH OVERLAY */
 .auth-overlay {
   position: fixed;
   inset: 0;
