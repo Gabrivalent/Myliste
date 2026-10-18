@@ -468,10 +468,17 @@ async function executeUndo() {
     }
     showToastNotice('Creazione annullata');
   } else if (action.type === 'DELETE') {
-    appData.items.unshift(action.data);
-    saveData();
-    await syncItemToSupabase(action.data);
-    showToastNotice(`Ripristinato "${action.data.title}"`);
+    if (Array.isArray(action.data)) {
+      action.data.forEach(it => appData.items.unshift(it));
+      saveData();
+      await syncBatchItemsToSupabase(action.data);
+      showToastNotice(`Ripristinati ${action.data.length} elementi`);
+    } else {
+      appData.items.unshift(action.data);
+      saveData();
+      await syncItemToSupabase(action.data);
+      showToastNotice(`Ripristinato "${action.data.title}"`);
+    }
   } else if (action.type === 'UPDATE') {
     const idx = appData.items.findIndex(i => i.id === action.prev.id);
     if (idx !== -1) {
@@ -502,10 +509,13 @@ async function executeRedo() {
     }
     showToastNotice('Creazione riapplicata');
   } else if (action.type === 'DELETE') {
-    appData.items = appData.items.filter(i => i.id !== action.data.id);
+    const ids = Array.isArray(action.data) ? action.data.map(i => i.id) : [action.data.id];
+    appData.items = appData.items.filter(i => !ids.includes(i.id));
     saveData();
-    await deleteItemFromSupabase(action.data.id);
-    showToastNotice(`Eliminato "${action.data.title}"`);
+    for (const id of ids) {
+      await deleteItemFromSupabase(id);
+    }
+    showToastNotice('Eliminazione riapplicata');
   } else if (action.type === 'UPDATE') {
     const idx = appData.items.findIndex(i => i.id === action.next.id);
     if (idx !== -1) {
@@ -539,7 +549,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
-// Giroscopio per riflesso foil su smartphone
+// Giroscopio foil su smartphone
 if (window.DeviceOrientationEvent) {
   window.addEventListener('deviceorientation', (event) => {
     if (event.gamma !== null) {
@@ -1202,7 +1212,7 @@ function createPossedutiAggregatedCard(series) {
     : '';
 
   const variantBadgeHtml = series.variantCount > 0 
-    ? `<span class="foil-sparkle-badge" title="${series.variantCount} Variant possedute">★ ${series.variantCount} Variant</span>` 
+    ? `<span class="foil-sparkle-badge" title="${series.variantCount} Variant possedute">★ ${series.variantCount}</span>` 
     : '';
 
   const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
@@ -1251,6 +1261,11 @@ function createPossedutiAggregatedCard(series) {
             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
           </svg>
         </button>
+        <button class="icon-btn delete-btn delete-series-btn" title="Elimina volume o serie" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+          </svg>
+        </button>
       </div>
     </div>
   `;
@@ -1294,7 +1309,50 @@ function createPossedutiAggregatedCard(series) {
     openOverviewModal(item);
   });
 
+  const delBtn = card.querySelector('.delete-series-btn');
+  if (delBtn) {
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleDeletePossedutiPrompt(series);
+    });
+  }
+
   return card;
+}
+
+async function handleDeletePossedutiPrompt(series) {
+  const title = series.representativeItem.title;
+  const count = series.allVolumes.length;
+
+  if (count <= 1) {
+    if (confirm(`Vuoi eliminare definitivamente "${title}" dalla collezione?`)) {
+      deleteItemWithUndo(series.representativeItem);
+    }
+    return;
+  }
+
+  const choice = prompt(
+    `Gestione eliminazione per "${title}":\n` +
+    `1. Elimina SOLO l'ultimo volume (#${series.maxNumber})\n` +
+    `2. Elimina TUTTI i ${count} volumi della serie\n\n` +
+    `Digita 1 o 2 (oppure Annulla):`
+  );
+
+  if (choice === '1') {
+    deleteItemWithUndo(series.representativeItem);
+  } else if (choice === '2') {
+    if (confirm(`Confermi di voler cancellare TUTTI i ${count} volumi di "${title}"?`)) {
+      pushHistoryAction({ type: 'DELETE', data: [...series.allVolumes] });
+      const idsToDelete = series.allVolumes.map(v => v.id);
+      appData.items = appData.items.filter(i => !idsToDelete.includes(i.id));
+      saveData();
+      for (const id of idsToDelete) {
+        await deleteItemFromSupabase(id);
+      }
+      renderList();
+      showToastNotice(`Cancellata l'intera serie "${title}"`);
+    }
+  }
 }
 
 function showGapsDetailModal(seriesTitle, missingNumbers, category) {
@@ -1612,7 +1670,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
     `;
   }
 
-  // Genera il badge data per la sezione Acquisti
   let dateBadgeHtml = '';
   if (item.set === 'Acquisti' && item.date) {
     const badgeClass = dateInfo.badgeType === 'today' ? 'badge-today' :
@@ -1750,7 +1807,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
 }
 
 // ----------------------------------------------------
-// SCAFFALE COSTE 3D (REGOLARI CON BUCHI + RIPARTO VARIANT)
+// SCAFFALE COSTE 3D
 // ----------------------------------------------------
 function openMangaShelf3D(seriesTitle, category) {
   shelfSeriesTitle.textContent = seriesTitle;
@@ -1888,7 +1945,7 @@ if (shelfModalBackdrop) {
 }
 
 // ----------------------------------------------------
-// SCANNER BARCODE: ANTEPRIMA SCHEDA & DOPPIO LOOKUP (GOOGLE BOOKS + OPEN LIBRARY)
+// SCANNER BARCODE (GOOGLE BOOKS + OPEN LIBRARY)
 // ----------------------------------------------------
 function openCheckerModal() {
   resetCheckerPreview();
@@ -1940,7 +1997,6 @@ async function processBarcodeVerification(isbn) {
   checkerStatusTitle.textContent = 'Ricerca dati ISBN...';
   checkerStatusDesc.textContent = `Codice: ${isbn}`;
 
-  // Estrae le prime 13 cifre per scartare add-on prezzo a 2 o 5 cifre
   const rawDigits = isbn.replace(/[^0-9X]/gi, '');
   const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
 
@@ -1949,7 +2005,6 @@ async function processBarcodeVerification(isbn) {
   let isVariant = false;
 
   try {
-    // TENTATIVO 1: Google Books API
     const resGoogle = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
     const dataGoogle = await resGoogle.json();
 
@@ -1969,7 +2024,6 @@ async function processBarcodeVerification(isbn) {
         volumeFound = numMatch[2].trim();
       }
     } else {
-      // TENTATIVO 2: Open Library API (fallback se Google Books è vuoto)
       const resOpenLib = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
       if (resOpenLib.ok) {
         const openLibData = await resOpenLib.json();
@@ -1984,7 +2038,7 @@ async function processBarcodeVerification(isbn) {
       }
     }
   } catch (err) {
-    console.warn("Lookup online barcode fallito:", err);
+    console.warn("Lookup barcode fallito:", err);
   }
 
   if (!titleFound) {
@@ -2315,8 +2369,8 @@ if (batchItemForm) {
       if (!exists) {
         createdItems.push({
           id: generateUniqueId(),
-          title: title,
-          set: set,
+          title,
+          set,
           category: cat,
           date: null,
           number: String(v),
@@ -2369,7 +2423,7 @@ if (batchItemForm) {
 }
 
 // ----------------------------------------------------
-// SCANNER ISBN NEL FORM CON DOPPIO LOOKUP AUTOMATICO
+// SCANNER ISBN NEL FORM CON DOPPIO LOOKUP
 // ----------------------------------------------------
 if (startScanBtn) {
   startScanBtn.addEventListener('click', () => {
@@ -2412,7 +2466,6 @@ async function fetchBookDataByISBN(isbn) {
     const rawDigits = isbn.replace(/[^0-9X]/gi, '');
     const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
 
-    // Tentativo 1: Google Books
     const resGoogle = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
     const dataGoogle = await resGoogle.json();
 
@@ -2421,7 +2474,6 @@ async function fetchBookDataByISBN(isbn) {
       return;
     }
 
-    // Tentativo 2: Open Library
     const resOpenLib = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
     if (resOpenLib.ok) {
       const openLibData = await resOpenLib.json();
@@ -2827,7 +2879,6 @@ itemForm.addEventListener('submit', (e) => {
 
   const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (itemNumber.value.trim() || null) : null;
 
-  // CONTROLLO DUPLICATI:
   if (!idToEdit) {
     if (set === 'Voti' || set === 'Liste') {
       const duplicateInOther = appData.items.find(i => 
@@ -3211,7 +3262,7 @@ confirmExportBtn.addEventListener('click', () => {
 });
 
 // ----------------------------------------------------
-// IMPORTAZIONE JSON TOLLERANTE AI CAMPI MANCANTI
+// IMPORTAZIONE JSON TOLLERANTE
 // ----------------------------------------------------
 triggerImportBtn.addEventListener('click', () => {
   importJsonFileInput.click();
