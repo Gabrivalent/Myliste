@@ -169,7 +169,7 @@ if (logoutBtn) {
 }
 
 // ----------------------------------------------------
-// REALTIME & DATI SUPABASE (SENZA user_id O is_read)
+// REALTIME & DATI SUPABASE (SENZA is_read O user_id)
 // ----------------------------------------------------
 function setupRealtimeSubscriptions() {
   if (!supabaseClient || !currentUser) return;
@@ -268,7 +268,7 @@ async function fetchDataFromSupabase() {
     updateCategoryDropdown();
     renderList();
   } catch (err) {
-    console.error('Errore durante il recupero dei dati da Supabase:', err);
+    console.error('Errore recupero dati Supabase:', err);
     setCloudStatus('error');
   }
 }
