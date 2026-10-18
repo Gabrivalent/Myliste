@@ -539,7 +539,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
-// Giroscopio foil su smartphone
+// Giroscopio per riflesso foil su smartphone
 if (window.DeviceOrientationEvent) {
   window.addEventListener('deviceorientation', (event) => {
     if (event.gamma !== null) {
@@ -1888,7 +1888,7 @@ if (shelfModalBackdrop) {
 }
 
 // ----------------------------------------------------
-// SCANNER BARCODE CON ANTEPRIMA SCHEDA & STORICO
+// SCANNER BARCODE: ANTEPRIMA SCHEDA & DOPPIO LOOKUP (GOOGLE BOOKS + OPEN LIBRARY)
 // ----------------------------------------------------
 function openCheckerModal() {
   resetCheckerPreview();
@@ -1940,17 +1940,21 @@ async function processBarcodeVerification(isbn) {
   checkerStatusTitle.textContent = 'Ricerca dati ISBN...';
   checkerStatusDesc.textContent = `Codice: ${isbn}`;
 
+  // Estrae le prime 13 cifre per scartare add-on prezzo a 2 o 5 cifre
+  const rawDigits = isbn.replace(/[^0-9X]/gi, '');
+  const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
+
+  let titleFound = '';
+  let volumeFound = null;
+  let isVariant = false;
+
   try {
-    const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-    const data = await res.json();
+    // TENTATIVO 1: Google Books API
+    const resGoogle = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+    const dataGoogle = await resGoogle.json();
 
-    let titleFound = '';
-    let volumeFound = null;
-    let isVariant = false;
-
-    if (data.items && data.items.length > 0) {
-      const volumeInfo = data.items[0].volumeInfo;
+    if (dataGoogle.items && dataGoogle.items.length > 0) {
+      const volumeInfo = dataGoogle.items[0].volumeInfo;
       const rawTitle = volumeInfo.title || '';
       const rawDesc = volumeInfo.description || '';
 
@@ -1965,22 +1969,35 @@ async function processBarcodeVerification(isbn) {
         volumeFound = numMatch[2].trim();
       }
     } else {
-      titleFound = `Volume ISBN ${cleanIsbn}`;
+      // TENTATIVO 2: Open Library API (fallback se Google Books è vuoto)
+      const resOpenLib = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
+      if (resOpenLib.ok) {
+        const openLibData = await resOpenLib.json();
+        if (openLibData && openLibData.title) {
+          titleFound = openLibData.title.trim();
+          const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
+          if (numMatch) {
+            titleFound = numMatch[1].trim();
+            volumeFound = numMatch[2].trim();
+          }
+        }
+      }
     }
-
-    lastDetectedCheckItem = {
-      title: titleFound,
-      number: volumeFound || '1',
-      isVariant: isVariant
-    };
-
-    displayBarcodeEvaluation();
   } catch (err) {
-    checkerResultBox.className = 'checker-result-box idle';
-    checkerSignalIcon.textContent = '⚠️';
-    checkerStatusTitle.textContent = 'Errore di connessione';
-    checkerStatusDesc.textContent = 'Impossibile verificare l\'ISBN sui server online.';
+    console.warn("Lookup online barcode fallito:", err);
   }
+
+  if (!titleFound) {
+    titleFound = `Volume ISBN ${cleanIsbn}`;
+  }
+
+  lastDetectedCheckItem = {
+    title: titleFound,
+    number: volumeFound || '1',
+    isVariant: isVariant
+  };
+
+  displayBarcodeEvaluation();
 }
 
 function displayBarcodeEvaluation() {
@@ -2352,7 +2369,7 @@ if (batchItemForm) {
 }
 
 // ----------------------------------------------------
-// SCANNER ISBN NEL FORM
+// SCANNER ISBN NEL FORM CON DOPPIO LOOKUP AUTOMATICO
 // ----------------------------------------------------
 if (startScanBtn) {
   startScanBtn.addEventListener('click', () => {
@@ -2392,29 +2409,43 @@ if (closeScannerBtn) closeScannerBtn.addEventListener('click', stopScanner);
 
 async function fetchBookDataByISBN(isbn) {
   try {
-    const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-    const data = await res.json();
+    const rawDigits = isbn.replace(/[^0-9X]/gi, '');
+    const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
 
-    if (data.items && data.items.length > 0) {
-      const volumeInfo = data.items[0].volumeInfo;
-      let titleFound = volumeInfo.title || '';
-      
-      const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
-      if (numMatch) {
-        itemTitle.value = numMatch[1];
-        itemNumber.value = numMatch[2];
-      } else {
-        itemTitle.value = titleFound;
-      }
+    // Tentativo 1: Google Books
+    const resGoogle = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+    const dataGoogle = await resGoogle.json();
 
-      showToastNotice(`Riconosciuto: "${titleFound}"!`);
-    } else {
-      showToastNotice(`Nessun titolo trovato per ISBN ${isbn}`);
+    if (dataGoogle.items && dataGoogle.items.length > 0) {
+      applyFoundBookTitle(dataGoogle.items[0].volumeInfo.title || '');
+      return;
     }
+
+    // Tentativo 2: Open Library
+    const resOpenLib = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
+    if (resOpenLib.ok) {
+      const openLibData = await resOpenLib.json();
+      if (openLibData && openLibData.title) {
+        applyFoundBookTitle(openLibData.title);
+        return;
+      }
+    }
+
+    showToastNotice(`ISBN ${cleanIsbn} rilevato. Inserisci il titolo.`);
   } catch (err) {
-    showToastNotice('Errore nella ricerca online dell\'ISBN.');
+    showToastNotice('Ricerca online non riuscita. Compila a mano.');
   }
+}
+
+function applyFoundBookTitle(rawTitle) {
+  const numMatch = rawTitle.match(/^(.*?)\s+#?(\d+)$/);
+  if (numMatch) {
+    itemTitle.value = numMatch[1].trim();
+    itemNumber.value = numMatch[2].trim();
+  } else {
+    itemTitle.value = rawTitle.trim();
+  }
+  showToastNotice(`Riconosciuto: "${itemTitle.value}"!`);
 }
 
 // ----------------------------------------------------
@@ -3195,7 +3226,6 @@ importJsonFileInput.addEventListener('change', (e) => {
     try {
       const importedData = JSON.parse(event.target.result);
 
-      // Supporta sia formato oggetto { items: [...] } sia array diretto [...]
       const itemsList = Array.isArray(importedData)
         ? importedData
         : (importedData && Array.isArray(importedData.items) ? importedData.items : null);
@@ -3221,7 +3251,6 @@ importJsonFileInput.addEventListener('change', (e) => {
       for (const incoming of itemsList) {
         if (!incoming) continue;
 
-        // Fallback per il titolo: non fallisce se vuoto
         const title = (incoming.title || incoming.name || 'Senza Titolo').toString().trim();
         const target = incoming.targetSet || incoming.set || incoming.section || 'Acquisti';
         const category = (incoming.category || 'Generale').toString().trim();
@@ -3259,7 +3288,6 @@ importJsonFileInput.addEventListener('change', (e) => {
           continue;
         }
 
-        // Supporto rating 0-5 o 0-100
         let incomingRating = null;
         if (incoming.rating !== undefined && incoming.rating !== null && incoming.rating !== '') {
           const num = Number(incoming.rating);
@@ -3268,7 +3296,6 @@ importJsonFileInput.addEventListener('change', (e) => {
           }
         }
 
-        // Fallback per tutti i campi opzionali
         const newItem = {
           id: generateUniqueId(),
           title: title,
