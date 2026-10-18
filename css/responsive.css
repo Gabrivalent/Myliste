@@ -5,9 +5,11 @@
   }
 }
 
-/* SMARTPHONE E TABLET COMPATTI (< 768px): COMPATTEZZA E ZERO RUMORE VISIVO */
+/* SMARTPHONE E TABLET COMPATTI (< 768px): OTTIMIZZAZIONE SPAZI E ICONE ESSENZIALI */
 @media (max-width: 768px) {
-  .site-layout { flex-direction: column; }
+  .site-layout { 
+    flex-direction: column; 
+  }
   
   .twitch-sidebar {
     width: 100%;
@@ -15,48 +17,67 @@
     position: static;
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 0.65rem 0.85rem;
+    padding: 0.5rem 0.6rem;
   }
   
-  .sidebar-section-title, .collapse-toggle-btn { display: none; }
+  .sidebar-section-title, .collapse-toggle-btn { 
+    display: none; 
+  }
   
   .sidebar-nav {
     flex-direction: row;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    gap: 6px;
-    padding-top: 0.2rem;
+    gap: 4px;
+    padding-top: 0.1rem;
   }
-  .sidebar-nav::-webkit-scrollbar { display: none; }
+  .sidebar-nav::-webkit-scrollbar { 
+    display: none; 
+  }
   
   .nav-item-btn {
     width: auto;
     flex-shrink: 0;
-    padding: 0.45rem 0.75rem;
-    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
   }
   
+  /* Footer sidebar in linea orizzontale con sole icone per i tasti secondari */
   .sidebar-footer {
     flex-direction: row;
     overflow-x: auto;
     border-top: none;
-    padding-top: 0.4rem;
-    margin-top: 0.4rem;
+    padding-top: 0.35rem;
+    margin-top: 0.35rem;
     scrollbar-width: none;
+    gap: 4px;
   }
-  .sidebar-footer::-webkit-scrollbar { display: none; }
-  .sidebar-footer .nav-item-btn { width: auto; flex-shrink: 0; }
+  .sidebar-footer::-webkit-scrollbar { 
+    display: none; 
+  }
+  
+  .sidebar-footer .nav-item-btn { 
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .sidebar-footer .nav-item-btn .nav-label {
+    display: none !important;
+  }
   
   .main-content-area {
-    padding: 0.75rem 0.65rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
-    gap: 0.75rem;
+    padding: 0.6rem 0.5rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
+    gap: 0.65rem;
   }
 
   .filter-bar {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.5rem;
+    gap: 0.45rem;
   }
 
   .filter-dropdown-pill {
@@ -66,109 +87,114 @@
     width: 100%;
   }
 
+  /* Barra destra filtri: pulsanti a sola icona su schermi piccoli */
   .filter-bar-right {
     display: flex;
     justify-content: space-between;
     width: 100%;
-    gap: 0.35rem;
+    gap: 0.3rem;
   }
 
   .filter-bar-right .sort-tag-btn {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.74rem;
     flex: 1;
+    min-width: 0;
     justify-content: center;
-    padding: 0.4rem 0.4rem;
-    font-size: 0.76rem;
   }
   
-  .history-controls {
-    flex-shrink: 0;
+  /* Nascondi etichette lunghe dei tasti rapidi tenendo solo il simbolo */
+  #openCheckerTopBtn span,
+  #openBatchTopBtn span,
+  #historyDropdownBtn span {
+    display: none !important;
   }
 
   .cards-flow {
     grid-template-columns: 1fr;
-    gap: 0.5rem;
+    gap: 0.45rem;
   }
 
   .item-card {
-    padding: 0.65rem 0.75rem;
-    gap: 0.45rem;
+    padding: 0.55rem 0.65rem;
+    gap: 0.4rem;
     min-height: auto;
   }
 
-  /* Nascondi testi ridondanti su mobile */
+  /* Nascondi testi ridondanti e fitti nelle card */
   .chapter-stepper-label,
   .smart-hint {
     display: none !important;
   }
 
   .chapter-stepper-wrap {
-    margin-top: 2px;
-    padding: 1px 4px;
-    gap: 2px;
+    margin-top: 1px;
+    padding: 1px 3px;
+    gap: 1px;
   }
   .chapter-stepper-wrap::before {
     content: "📖";
-    font-size: 0.68rem;
+    font-size: 0.65rem;
     margin-right: 1px;
   }
 
   .volume-stepper-wrap {
-    padding: 1px 3px;
+    padding: 1px 2px;
     gap: 1px;
   }
   .vol-step-btn,
   .chapter-step-btn {
-    padding: 2px 5px;
-    font-size: 0.8rem;
+    padding: 2px 4px;
+    font-size: 0.75rem;
   }
 
   .item-name {
-    font-size: 0.9rem;
+    font-size: 0.88rem;
   }
 
   .item-tags-row {
-    gap: 0.25rem;
+    gap: 0.2rem;
   }
   .item-tag-inline,
   .completed-badge,
   .read-badge,
   .foil-sparkle-badge {
-    font-size: 0.58rem;
-    padding: 1px 4px;
+    font-size: 0.55rem;
+    padding: 1px 3px;
   }
 
   .card-left-section {
-    gap: 0.45rem;
+    gap: 0.4rem;
   }
 
   .card-right-section {
-    gap: 0.3rem;
+    gap: 0.25rem;
   }
 
   .card-actions .icon-btn {
-    padding: 5px;
+    padding: 4px;
   }
 
   .fab-btn {
     bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
     right: 1.25rem;
-    width: 48px;
-    height: 48px;
+    width: 46px;
+    height: 46px;
   }
 
   .modal-card {
-    padding: 1.25rem 1rem;
+    padding: 1.1rem 0.85rem;
     max-height: calc(100dvh - 1.5rem);
     border-radius: 12px;
   }
 
   .manga-spine {
-    width: 32px;
-    height: 180px;
+    width: 30px;
+    height: 170px;
   }
   .spine-title-vertical {
-    font-size: 0.65rem;
-    max-height: 105px;
+    font-size: 0.62rem;
+    max-height: 95px;
   }
 }
 
@@ -176,6 +202,6 @@
 @media (max-width: 640px) {
   .cards-flow {
     grid-template-columns: 1fr;
-    gap: 0.5rem;
+    gap: 0.45rem;
   }
 }
