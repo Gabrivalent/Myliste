@@ -1,64 +1,181 @@
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161717;
-    --card: #2b2c2c;
-    --ink: #f1f5fa;
-    --mute: #9ca3af;
-    --line: #3a3c3c;
-    --acc: #5ea2ea;
-    --acc-hover: #74b1f3;
-    --date: #88beff;
-    --hl: #28303d;
-    --warn: #f87171;
-    --wa: #2cdb6e;
-    --wa-dark: #22b859;
-    color-scheme: dark;
-    --glass-bg: rgba(31, 32, 32, 0.92);
+/* TABLET E SCHERMI MEDI (2 COLONNE) */
+@media (max-width: 1024px) {
+  .cards-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (min-width: 760px) {
-  .matches { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-  .mbody { grid-template-columns: minmax(0, 1fr) 280px; }
-  .mweeks { grid-column: 1; grid-row: 1; }
-  .recap { grid-column: 2; grid-row: 1; position: sticky; top: 110px; align-self: start; }
-}
+/* SMARTPHONE E TABLET COMPATTI (< 768px): COMPATTEZZA E ZERO RUMORE VISIVO */
+@media (max-width: 768px) {
+  .site-layout { flex-direction: column; }
+  
+  .twitch-sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.65rem 0.85rem;
+  }
+  
+  .sidebar-section-title, .collapse-toggle-btn { display: none; }
+  
+  .sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 6px;
+    padding-top: 0.2rem;
+  }
+  .sidebar-nav::-webkit-scrollbar { display: none; }
+  
+  .nav-item-btn {
+    width: auto;
+    flex-shrink: 0;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+  }
+  
+  .sidebar-footer {
+    flex-direction: row;
+    overflow-x: auto;
+    border-top: none;
+    padding-top: 0.4rem;
+    margin-top: 0.4rem;
+    scrollbar-width: none;
+  }
+  .sidebar-footer::-webkit-scrollbar { display: none; }
+  .sidebar-footer .nav-item-btn { width: auto; flex-shrink: 0; }
+  
+  .main-content-area {
+    padding: 0.75rem 0.65rem calc(5.5rem + env(safe-area-inset-bottom, 0px));
+    gap: 0.75rem;
+  }
 
-@media (min-width: 860px) {
-  .layout-main {
-    grid-template-columns: 250px minmax(0, 1fr);
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .filter-dropdown-pill {
+    width: 100%;
+  }
+  .filter-dropdown-pill select {
+    width: 100%;
+  }
+
+  .filter-bar-right {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.35rem;
+  }
+
+  .filter-bar-right .sort-tag-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 0.4rem 0.4rem;
+    font-size: 0.76rem;
+  }
+  
+  .history-controls {
+    flex-shrink: 0;
+  }
+
+  .cards-flow {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .item-card {
+    padding: 0.65rem 0.75rem;
+    gap: 0.45rem;
+    min-height: auto;
+  }
+
+  /* Nascondi testi ridondanti su mobile */
+  .chapter-stepper-label,
+  .smart-hint {
+    display: none !important;
+  }
+
+  .chapter-stepper-wrap {
+    margin-top: 2px;
+    padding: 1px 4px;
+    gap: 2px;
+  }
+  .chapter-stepper-wrap::before {
+    content: "📖";
+    font-size: 0.68rem;
+    margin-right: 1px;
+  }
+
+  .volume-stepper-wrap {
+    padding: 1px 3px;
+    gap: 1px;
+  }
+  .vol-step-btn,
+  .chapter-step-btn {
+    padding: 2px 5px;
+    font-size: 0.8rem;
+  }
+
+  .item-name {
+    font-size: 0.9rem;
+  }
+
+  .item-tags-row {
+    gap: 0.25rem;
+  }
+  .item-tag-inline,
+  .completed-badge,
+  .read-badge,
+  .foil-sparkle-badge {
+    font-size: 0.58rem;
+    padding: 1px 4px;
+  }
+
+  .card-left-section {
+    gap: 0.45rem;
+  }
+
+  .card-right-section {
+    gap: 0.3rem;
+  }
+
+  .card-actions .icon-btn {
+    padding: 5px;
+  }
+
+  .fab-btn {
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    right: 1.25rem;
+    width: 48px;
+    height: 48px;
+  }
+
+  .modal-card {
+    padding: 1.25rem 1rem;
+    max-height: calc(100dvh - 1.5rem);
+    border-radius: 12px;
+  }
+
+  .manga-spine {
+    width: 32px;
+    height: 180px;
+  }
+  .spine-title-vertical {
+    font-size: 0.65rem;
+    max-height: 105px;
   }
 }
 
-/* COMPORTAMENTO SOLO SU SMARTPHONE E TABLET (< 860px) */
-@media (max-width: 859px) {
-  .nav-toggle-btn {
-    display: inline-flex;
-  }
-
-  .nav-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 280px;
-    max-width: 82vw;
-    max-height: 100vh;
-    height: 100vh;
-    border-radius: 0 16px 16px 0;
-    z-index: 900;
-    transform: translateX(-105%);
-    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
-    padding: 16px 12px 30px;
-  }
-
-  .nav-sidebar.open {
-    transform: translateX(0);
-  }
-
-  .nav-backdrop.open {
-    display: block;
-    opacity: 1;
+/* SMARTPHONE PICCOLI (< 640px) */
+@media (max-width: 640px) {
+  .cards-flow {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
   }
 }
