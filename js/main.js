@@ -169,7 +169,7 @@ if (logoutBtn) {
 }
 
 // ----------------------------------------------------
-// REALTIME & DATI SUPABASE (SENZA is_read O user_id)
+// REALTIME & DATI SUPABASE (SENZA user_id O is_read)
 // ----------------------------------------------------
 function setupRealtimeSubscriptions() {
   if (!supabaseClient || !currentUser) return;
@@ -228,6 +228,7 @@ function formatRowToItem(row) {
     category: row.category,
     date: row.date,
     number: row.number,
+    isbn: row.isbn || null,
     rating: row.rating,
     unplayed: Boolean(row.unplayed),
     purchased: Boolean(row.purchased),
@@ -268,7 +269,7 @@ async function fetchDataFromSupabase() {
     updateCategoryDropdown();
     renderList();
   } catch (err) {
-    console.error('Errore recupero dati Supabase:', err);
+    console.error('Errore durante il recupero dei dati da Supabase:', err);
     setCloudStatus('error');
   }
 }
@@ -283,6 +284,7 @@ async function syncItemToSupabase(item) {
       category: item.category || 'Generale',
       date: item.date || null,
       number: item.number ? String(item.number) : null,
+      isbn: item.isbn || null,
       rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
@@ -327,6 +329,7 @@ async function syncBatchItemsToSupabase(itemsArray) {
         category: item.category || 'Generale',
         date: item.date || null,
         number: item.number ? String(item.number) : null,
+        isbn: item.isbn || null,
         rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
         unplayed: Boolean(item.unplayed),
         purchased: Boolean(item.purchased),
@@ -549,7 +552,7 @@ function getCategoryColor(catName) {
   return CATEGORY_COLORS[index];
 }
 
-// Giroscopio foil su smartphone
+// Giroscopio per riflesso foil su smartphone
 if (window.DeviceOrientationEvent) {
   window.addEventListener('deviceorientation', (event) => {
     if (event.gamma !== null) {
@@ -1670,6 +1673,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
     `;
   }
 
+  // Genera il badge data per la sezione Acquisti
   let dateBadgeHtml = '';
   if (item.set === 'Acquisti' && item.date) {
     const badgeClass = dateInfo.badgeType === 'today' ? 'badge-today' :
@@ -1945,7 +1949,7 @@ if (shelfModalBackdrop) {
 }
 
 // ----------------------------------------------------
-// SCANNER BARCODE (GOOGLE BOOKS + OPEN LIBRARY)
+// SCANNER BARCODE CON MODIFICA TITOLO, VOLUME E CATEGORIA
 // ----------------------------------------------------
 function openCheckerModal() {
   resetCheckerPreview();
@@ -2001,10 +2005,12 @@ async function processBarcodeVerification(isbn) {
   const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
 
   let titleFound = '';
-  let volumeFound = null;
+  let volumeFound = '1';
   let isVariant = false;
+  let detectedCategory = 'Generale';
 
   try {
+    // 1. Google Books API
     const resGoogle = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
     const dataGoogle = await resGoogle.json();
 
@@ -2012,6 +2018,15 @@ async function processBarcodeVerification(isbn) {
       const volumeInfo = dataGoogle.items[0].volumeInfo;
       const rawTitle = volumeInfo.title || '';
       const rawDesc = volumeInfo.description || '';
+      const categoriesText = (volumeInfo.categories || []).join(' ').toLowerCase();
+
+      if (/manga/i.test(`${rawTitle} ${rawDesc} ${categoriesText}`)) {
+        detectedCategory = 'Manga';
+      } else if (/comic|graphic novel|dc|marvel|fumett/i.test(`${rawTitle} ${rawDesc} ${categoriesText}`)) {
+        detectedCategory = 'Comics';
+      } else {
+        detectedCategory = 'Libri';
+      }
 
       if (/variant|cover\s*[b-z]|limited|special\s*edition/i.test(`${rawTitle} ${rawDesc}`)) {
         isVariant = true;
@@ -2024,11 +2039,13 @@ async function processBarcodeVerification(isbn) {
         volumeFound = numMatch[2].trim();
       }
     } else {
+      // 2. Open Library API
       const resOpenLib = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
       if (resOpenLib.ok) {
         const openLibData = await resOpenLib.json();
         if (openLibData && openLibData.title) {
           titleFound = openLibData.title.trim();
+          detectedCategory = 'Libri';
           const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
           if (numMatch) {
             titleFound = numMatch[1].trim();
@@ -2041,13 +2058,16 @@ async function processBarcodeVerification(isbn) {
     console.warn("Lookup barcode fallito:", err);
   }
 
-  if (!titleFound) {
-    titleFound = `Volume ISBN ${cleanIsbn}`;
+  // Pre-assegna la categoria attiva se non è 'Tutte'
+  if (activeCategory !== 'Tutte') {
+    detectedCategory = activeCategory;
   }
 
   lastDetectedCheckItem = {
-    title: titleFound,
+    isbn: cleanIsbn,
+    title: titleFound || '',
     number: volumeFound || '1',
+    category: detectedCategory,
     isVariant: isVariant
   };
 
@@ -2057,23 +2077,33 @@ async function processBarcodeVerification(isbn) {
 function displayBarcodeEvaluation() {
   if (!lastDetectedCheckItem) return;
 
-  const { title, number, isVariant } = lastDetectedCheckItem;
-  const titleLower = title.toLowerCase();
+  const { isbn, title, number, category, isVariant } = lastDetectedCheckItem;
 
-  const exactOwned = appData.items.find(i => 
+  // Controllo duplicati primario per ISBN, secondario per Titolo + Volume
+  const exactOwnedByIsbn = appData.items.find(i => 
     i.set === 'Posseduti' && 
-    i.title.toLowerCase() === titleLower && 
-    String(i.number || '') === String(number) &&
+    i.isbn && 
+    i.isbn === isbn && 
     Boolean(i.isVariant) === Boolean(isVariant)
   );
 
-  if (exactOwned) {
+  const exactOwnedByTitle = title ? appData.items.find(i => 
+    i.set === 'Posseduti' && 
+    i.title.toLowerCase() === title.toLowerCase() && 
+    String(i.number || '') === String(number) &&
+    Boolean(i.isVariant) === Boolean(isVariant)
+  ) : null;
+
+  const existingItem = exactOwnedByIsbn || exactOwnedByTitle;
+
+  if (existingItem) {
     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     checkerResultBox.className = 'checker-result-box red-signal';
     checkerSignalIcon.textContent = '⛔';
     checkerStatusTitle.textContent = isVariant ? 'VARIANT GIÀ IN COLLEZIONE!' : 'GIÀ PRESENTE IN COLLEZIONE!';
     checkerStatusDesc.innerHTML = `
-      Possiedi già "${escapeHtml(title)} #${escapeHtml(number)}" nei tuoi Posseduti!
+      Possiedi già "<strong>${escapeHtml(existingItem.title)}</strong>" (Vol. #${escapeHtml(existingItem.number || '1')}) nei tuoi Posseduti!
+      <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">ISBN: ${escapeHtml(isbn)}</div>
     `;
     checkerAddToAcquistiBtn.style.display = 'none';
     checkerAddToPossedutiBtn.style.display = 'none';
@@ -2081,16 +2111,42 @@ function displayBarcodeEvaluation() {
     if (navigator.vibrate) navigator.vibrate(80);
     checkerResultBox.className = 'checker-result-box green-signal';
     checkerSignalIcon.textContent = '✅';
-    checkerStatusTitle.textContent = 'NON PRESENTE: PUOI ACQUISTARLO!';
+    checkerStatusTitle.textContent = 'NON PRESENTE: CONFERMA I DATI';
+
+    // Genera options delle categorie esistenti
+    const categoryOptionsHtml = appData.categories.map(cat => {
+      const isSelected = cat.toLowerCase() === (category || 'Generale').toLowerCase();
+      return `<option value="${escapeHtml(cat)}" ${isSelected ? 'selected' : ''}>${escapeHtml(cat)}</option>`;
+    }).join('');
+
     checkerStatusDesc.innerHTML = `
-      <div class="scanner-preview-card" style="background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; margin-top: 6px;">
-        <div style="font-weight: 700; color: #fff;">${escapeHtml(title)}</div>
-        <div style="font-size: 0.85rem; color: var(--accent-cyan);">Volume: #${escapeHtml(number)}</div>
-        <label class="checkbox-row" style="margin-top: 6px;">
-          <input type="checkbox" id="scannerVariantCheck" ${isVariant ? 'checked' : ''}>
-          <span class="custom-chk"></span>
-          <span style="font-size: 0.8rem; font-weight: 700;">★ Edizione Variant</span>
-        </label>
+      <div class="scanner-preview-card" style="background: rgba(0,0,0,0.35); padding: 10px; border-radius: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
+        <div>
+          <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Titolo Opera:</label>
+          <input type="text" id="scannerCustomTitle" value="${escapeHtml(title)}" placeholder="Inserisci il titolo dell'opera..." style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.9rem; font-weight: 600;">
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <div style="flex: 1;">
+            <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Volume #:</label>
+            <input type="text" id="scannerCustomVol" value="${escapeHtml(number)}" placeholder="es. 1" style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.85rem;">
+          </div>
+          <div style="flex: 1.2;">
+            <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Categoria:</label>
+            <select id="scannerCustomCat" style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.85rem;">
+              ${categoryOptionsHtml}
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 2px;">
+          <div style="font-size: 0.75rem; color: var(--accent-cyan); font-weight: 700;">ISBN: ${escapeHtml(isbn)}</div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="scannerVariantCheck" ${isVariant ? 'checked' : ''}>
+            <span class="custom-chk"></span>
+            <span style="font-size: 0.8rem; font-weight: 700;">★ Variant</span>
+          </label>
+        </div>
       </div>
     `;
 
@@ -2119,14 +2175,24 @@ if (checkerResetBtn) {
 if (checkerAddToAcquistiBtn) {
   checkerAddToAcquistiBtn.addEventListener('click', () => {
     if (!lastDetectedCheckItem) return;
+
+    const titleInput = document.getElementById('scannerCustomTitle');
+    const volInput = document.getElementById('scannerCustomVol');
+    const catInput = document.getElementById('scannerCustomCat');
+
+    const finalTitle = (titleInput && titleInput.value.trim()) ? titleInput.value.trim() : (lastDetectedCheckItem.title || `Opera ISBN ${lastDetectedCheckItem.isbn}`);
+    const finalVol = (volInput && volInput.value.trim()) ? volInput.value.trim() : (lastDetectedCheckItem.number || '1');
+    const finalCat = (catInput && catInput.value) ? catInput.value : (lastDetectedCheckItem.category || 'Generale');
     const isVar = Boolean(lastDetectedCheckItem.isVariant);
+
     const newItem = {
       id: generateUniqueId(),
-      title: lastDetectedCheckItem.title,
+      title: finalTitle,
       set: 'Acquisti',
-      category: 'Generale',
+      category: finalCat,
       date: null,
-      number: lastDetectedCheckItem.number || '1',
+      number: finalVol,
+      isbn: lastDetectedCheckItem.isbn,
       rating: null,
       unplayed: false,
       purchased: false,
@@ -2138,27 +2204,38 @@ if (checkerAddToAcquistiBtn) {
       privateComment: '',
       createdAt: new Date().toISOString()
     };
+
     appData.items.unshift(newItem);
     pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
     saveData();
     syncItemToSupabase(newItem);
     renderList();
     stopCheckerModal();
-    showToastNotice(`"${newItem.title}" aggiunto agli Acquisti!`);
+    showToastNotice(`"${newItem.title} #${newItem.number}" aggiunto agli Acquisti!`);
   });
 }
 
 if (checkerAddToPossedutiBtn) {
   checkerAddToPossedutiBtn.addEventListener('click', () => {
     if (!lastDetectedCheckItem) return;
+
+    const titleInput = document.getElementById('scannerCustomTitle');
+    const volInput = document.getElementById('scannerCustomVol');
+    const catInput = document.getElementById('scannerCustomCat');
+
+    const finalTitle = (titleInput && titleInput.value.trim()) ? titleInput.value.trim() : (lastDetectedCheckItem.title || `Opera ISBN ${lastDetectedCheckItem.isbn}`);
+    const finalVol = (volInput && volInput.value.trim()) ? volInput.value.trim() : (lastDetectedCheckItem.number || '1');
+    const finalCat = (catInput && catInput.value) ? catInput.value : (lastDetectedCheckItem.category || 'Generale');
     const isVar = Boolean(lastDetectedCheckItem.isVariant);
+
     const newItem = {
       id: generateUniqueId(),
-      title: lastDetectedCheckItem.title,
+      title: finalTitle,
       set: 'Posseduti',
-      category: 'Generale',
+      category: finalCat,
       date: null,
-      number: lastDetectedCheckItem.number || '1',
+      number: finalVol,
+      isbn: lastDetectedCheckItem.isbn,
       rating: null,
       unplayed: false,
       purchased: false,
@@ -2170,6 +2247,7 @@ if (checkerAddToPossedutiBtn) {
       privateComment: '',
       createdAt: new Date().toISOString()
     };
+
     appData.items.unshift(newItem);
     pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
     saveData();
@@ -2181,7 +2259,7 @@ if (checkerAddToPossedutiBtn) {
 
     renderList();
     stopCheckerModal();
-    showToastNotice(`"${newItem.title}" aggiunto ai Posseduti!`);
+    showToastNotice(`"${newItem.title} #${newItem.number}" aggiunto ai Posseduti!`);
   });
 }
 
@@ -3226,6 +3304,7 @@ confirmExportBtn.addEventListener('click', () => {
       category: item.category || 'Generale',
       date: item.date || null,
       number: item.number || null,
+      isbn: item.isbn || null,
       completed: Boolean(item.completed),
       isRead: Boolean(item.isRead),
       rating: item.rating !== undefined ? item.rating : null,
@@ -3354,6 +3433,7 @@ importJsonFileInput.addEventListener('change', (e) => {
           category: category,
           date: incoming.date || null,
           number: incomingNumber,
+          isbn: incoming.isbn || null,
           completed: Boolean(incoming.completed),
           isRead: Boolean(incoming.isRead || incoming.is_read),
           rating: incomingRating,
