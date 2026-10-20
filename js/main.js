@@ -221,6 +221,10 @@ function handleRealtimeEvent(payload) {
 }
 
 function formatRowToItem(row) {
+  const comment = row.private_comment || '';
+  const isbnMatch = comment.match(/\[ISBN:\s*([0-9X]+)\]/i);
+  const extractedIsbn = isbnMatch ? isbnMatch[1] : null;
+
   return {
     id: Number(row.id),
     title: row.title,
@@ -228,7 +232,7 @@ function formatRowToItem(row) {
     category: row.category,
     date: row.date,
     number: row.number,
-    isbn: row.isbn || null,
+    isbn: extractedIsbn,
     rating: row.rating,
     unplayed: Boolean(row.unplayed),
     purchased: Boolean(row.purchased),
@@ -237,7 +241,7 @@ function formatRowToItem(row) {
     isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
     missingGapNotice: row.missing_gap_notice,
     readingChapter: row.reading_chapter || '',
-    privateComment: row.private_comment || '',
+    privateComment: comment,
     createdAt: row.created_at || new Date().toISOString()
   };
 }
@@ -278,20 +282,26 @@ async function syncItemToSupabase(item) {
   if (!supabaseClient || !currentUser) return;
 
   try {
+    // Gestione note con ISBN incluso in modo sicuro senza rompere lo schema
+    let cleanComment = item.privateComment || '';
+    if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
+      cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
+    }
+
+    // SOLO colonne sicuramente presenti nella tabella items
     const payload = {
       title: item.title,
       set_type: item.set,
       category: item.category || 'Generale',
       date: item.date || null,
       number: item.number ? String(item.number) : null,
-      isbn: item.isbn || null,
       rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
       unplayed: Boolean(item.unplayed),
       purchased: Boolean(item.purchased),
       completed: Boolean(item.completed),
       missing_gap_notice: item.missingGapNotice || null,
       reading_chapter: item.readingChapter || null,
-      private_comment: item.privateComment || ''
+      private_comment: cleanComment
     };
 
     const numericId = parseInt(item.id, 10);
@@ -323,20 +333,24 @@ async function syncBatchItemsToSupabase(itemsArray) {
 
   try {
     const payload = itemsArray.map(item => {
+      let cleanComment = item.privateComment || '';
+      if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
+        cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
+      }
+
       const obj = {
         title: item.title,
         set_type: item.set,
         category: item.category || 'Generale',
         date: item.date || null,
         number: item.number ? String(item.number) : null,
-        isbn: item.isbn || null,
         rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
         unplayed: Boolean(item.unplayed),
         purchased: Boolean(item.purchased),
         completed: Boolean(item.completed),
         missing_gap_notice: item.missingGapNotice || null,
         reading_chapter: item.readingChapter || null,
-        private_comment: item.privateComment || ''
+        private_comment: cleanComment
       };
 
       const numericId = parseInt(item.id, 10);
@@ -354,7 +368,6 @@ async function syncBatchItemsToSupabase(itemsArray) {
     setCloudStatus('error');
   }
 }
-
 async function deleteItemFromSupabase(id) {
   if (!supabaseClient || !currentUser) return;
 
