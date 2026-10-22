@@ -1,768 +1,166 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>La Mia Collezione</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Partite</title>
   
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%231d5fa8'/%3E%3Ccircle cx='256' cy='256' r='160' fill='none' stroke='white' stroke-width='28'/%3E%3C/svg%3E">
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#0d0e12">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Collezione">
+  <meta name="theme-color" content="#161717">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Partite">
 
-  <!-- Font Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <!-- Fogli di stile CSS suddivisi nei 4 moduli -->
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap" rel="stylesheet">
+  
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
   <link rel="stylesheet" href="css/modals.css">
   <link rel="stylesheet" href="css/responsive.css">
 
-  <!-- CDN Esterne per Supabase e Scanner Barcode HTML5 -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
-<body>
+<body class="ro">
+<div class="app-layout">
 
-  <!-- SCHERMATA LOGIN -->
-  <div class="auth-overlay" id="authOverlay">
-    <div class="auth-card">
-      <div class="auth-header">
-        <span class="auth-badge-dot"></span>
-        <h2>Accesso Collezione</h2>
-        <p>Inserisci le tue credenziali per sincronizzare la collezione.</p>
+  <!-- SIDEBAR / ICON RAIL (Desktop) & DRAWER (Mobile) -->
+  <aside class="app-sidebar" id="appSidebar">
+    <div class="sidebar-top">
+      <button id="sidebarToggleBtn" class="rail-icon-btn" title="Espandi / Comprimi Menu" type="button">
+        <span class="icon">☰</span>
+      </button>
+      <span class="sidebar-brand-label">Menu Partite</span>
+    </div>
+
+    <!-- VISTE ESSENZIALI NELLA RAIL -->
+    <nav class="sidebar-nav">
+      <button type="button" class="rail-nav-item active" id="railNavHome" title="Partite">
+        <span class="icon">🏀</span>
+        <span class="label">Partite</span>
+      </button>
+      <button type="button" class="rail-nav-item" id="railNavResoconto" title="Resoconto Compensi">
+        <span class="icon">📊</span>
+        <span class="label">Compensi</span>
+      </button>
+    </nav>
+
+    <!-- ALBERO DEL CALENDARIO: SUBITO IN ALTO -->
+    <div class="sidebar-tree-container">
+      <div class="sidebar-section-title">Calendario</div>
+      <div id="navTree" class="nav-tree"></div>
+    </div>
+
+    <!-- IN FONDO: INGRANAGGIO IMPOSTAZIONI TECNICHE, SYNC E LOGIN -->
+    <div class="sidebar-bottom">
+      <button type="button" class="rail-nav-item" id="railNavSettings" title="Strumenti & Impostazioni">
+        <span class="icon">⚙️</span>
+        <span class="label">Impostazioni</span>
+      </button>
+
+      <div class="rail-sync-wrap" id="railSyncWrap">
+        <span id="syncDot" class="sync-dot sync-green" title="Pronto"></span>
+        <span class="sync-text-status" id="syncStatusText">Connesso</span>
       </div>
 
-      <form id="loginForm">
-        <div class="input-group">
-          <label for="loginEmail">Email</label>
-          <input type="email" id="loginEmail" placeholder="iltuonome@email.com" required autocomplete="username">
-        </div>
-
-        <div class="input-group" style="margin-top: 0.85rem;">
-          <label for="loginPassword">Password</label>
-          <input type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
-        </div>
-
-        <div class="auth-error-msg" id="authErrorMsg" style="display: none;"></div>
-
-        <button type="submit" class="btn-primary auth-btn" id="loginSubmitBtn">
-          Accedi
-        </button>
-      </form>
+      <button id="authBtn" type="button" class="rail-auth-btn" title="Accesso Amministratore">
+        <span class="icon">🔒</span>
+        <span class="label">Accedi</span>
+      </button>
     </div>
-  </div>
+  </aside>
 
-  <!-- LAYOUT A SCHERMO INTERO STILE TWITCH -->
-  <div class="site-layout" id="appContent" style="display: none;">
+  <!-- BACKDROP MOBILE PER IL DRAWER -->
+  <div id="navBackdrop" class="nav-backdrop"></div>
+
+  <!-- AREA PRINCIPALE CONTENUTO -->
+  <div class="app-content-wrapper">
     
-    <!-- SIDEBAR FISSA A SINISTRA -->
-    <aside class="twitch-sidebar" id="twitchSidebar">
-      <div class="sidebar-header">
-        <div class="nav-brand">
-          <span class="brand-dot" id="cloudStatusDot" title="Stato sincronizzazione Cloud"></span>
-          <span class="brand-title">Collezione</span>
-        </div>
-        <button class="collapse-toggle-btn" id="toggleSidebarBtn" title="Comprimi/Espandi barra" type="button">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
-          </svg>
-        </button>
+    <!-- TOP BAR -->
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <button id="mobileMenuBtn" type="button" class="mobile-menu-btn" title="Apri Menu">☰</button>
+        <h1 class="page-title">Partite</h1>
+        <button id="conflictAlertBtn" type="button" class="alert-btn-standalone status-ok" title="Nessun conflitto">✓</button>
       </div>
 
-      <div class="sidebar-section-title">SEZIONI</div>
-
-      <nav class="sidebar-nav" id="setTabs" role="tablist" aria-label="Sezioni collezione">
-        <button class="nav-item-btn active" data-set="Acquisti" type="button" role="tab" aria-selected="true" title="Acquisti">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Acquisti</span>
-        </button>
-
-        <button class="nav-item-btn" data-set="Posseduti" type="button" role="tab" aria-selected="false" title="Posseduti">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Posseduti</span>
-        </button>
-
-        <button class="nav-item-btn" data-set="Voti" type="button" role="tab" aria-selected="false" title="Voti">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Voti</span>
-        </button>
-
-        <button class="nav-item-btn" data-set="Liste" type="button" role="tab" aria-selected="false" title="Liste">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Liste</span>
-        </button>
-      </nav>
-
-      <div class="sidebar-footer">
-        <button class="nav-item-btn highlight-scan-nav" id="openCheckerScanBtn" type="button" title="Verifica se un volume è già tuo">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Verifica Barcode</span>
-        </button>
-
-        <button class="nav-item-btn" id="openBatchModalBtn" type="button" title="Aggiungi Blocco Volumi">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zm-7-2h2v-3h3v-2h-3V6h-2v3H9v2h3v3z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Blocco Volumi</span>
-        </button>
-
-        <button class="nav-item-btn" id="openStatsBtn" type="button" title="Statistiche">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Statistiche</span>
-        </button>
-
-        <button class="nav-item-btn" id="openSettingsBtn" type="button" title="Impostazioni">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Impostazioni</span>
-        </button>
-      </div>
-    </aside>
-
-    <!-- AREA CENTRALE DEI CONTENUTI -->
-    <main class="main-content-area">
-      <div class="filter-bar">
-        <div class="filter-dropdown-pill">
-          <select id="categoryFilter" aria-label="Filtra per categoria"></select>
-        </div>
+      <div class="top-bar-actions">
+        <!-- OGGI VICINO A + PARTITA -->
+        <button id="todayBtn" type="button" class="pill-btn-action" title="Vai a oggi">Oggi</button>
+        <button id="add" type="button" class="btn-primary-action auth-only">+ Partita</button>
         
-        <div class="filter-bar-right">
-          <!-- PULSANTI UNDO / REDO -->
-          <div class="history-controls">
-            <button class="sort-tag-btn icon-history-btn" id="historyUndoBtn" title="Annulla ultima azione (Ctrl+Z)" type="button" disabled aria-label="Annulla">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
-              </svg>
-            </button>
-            <button class="sort-tag-btn icon-history-btn" id="historyRedoBtn" title="Ripristina azione (Ctrl+Y)" type="button" disabled aria-label="Ripristina">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
-              </svg>
-            </button>
-          </div>
-
-          <!-- TENDINA STORICO RECENTI -->
-          <div class="history-dropdown-wrapper">
-            <button class="sort-tag-btn" id="historyDropdownBtn" title="Mostra storico aggiunte recenti" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
-              </svg>
-              <span>Storico</span>
-            </button>
-            <div class="history-dropdown-menu" id="historyDropdownMenu"></div>
-          </div>
-
-          <button class="sort-tag-btn checker-quick-btn" id="openCheckerTopBtn" title="Scansiona per controllare se ce l'hai già" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
-            </svg>
-            <span>Verifica Barcode</span>
-          </button>
-
-          <button class="sort-tag-btn" id="openBatchTopBtn" title="Aggiungi serie a blocchi (es. 1-10)" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/>
-            </svg>
-            <span>Blocco Volumi</span>
-          </button>
-
-          <button class="sort-tag-btn" id="toggleSortBtn" title="Cambia ordinamento per questo insieme" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/>
-            </svg>
-            <span id="sortIndicatorText">Per Data</span>
-          </button>
-        </div>
+        <button id="undoBtn" type="button" class="pill-btn-sm auth-only" title="Annulla ultima modifica (Ctrl+Z)">↺</button>
+        <button id="quickSaveBtn" class="pill-btn-sm auth-only" title="Salva modifiche (Ctrl+S)">💾</button>
+        <button id="quickPullBtn" class="pill-btn-sm" title="Aggiorna dati">↻</button>
       </div>
+    </header>
 
-      <!-- Barra di ricerca -->
-      <div class="search-bar-wrap" id="searchBarWrap">
-        <div class="search-input-box">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-          </svg>
-          <input type="text" id="seriesSearchInput" placeholder="Cerca opera o titolo (Premi '/' per cercare)..." aria-label="Cerca nella collezione">
-          <button type="button" class="clear-search-btn" id="clearSearchBtn" title="Cancella ricerca" aria-label="Cancella ricerca" style="display: none;">&times;</button>
-        </div>
+    <!-- STRISCIA FILTRI -->
+    <div class="filter-strip">
+      <div class="search-wrap">
+        <input type="search" id="searchFilter" placeholder="🔍 Cerca squadre, ruoli..." autocomplete="off">
       </div>
+      <select id="filterCat"><option value="">Tutte le categorie</option></select>
+      <button id="filterIncomplete" type="button" class="filter-chip" aria-pressed="false">Incomplete <span id="incCount"></span></button>
+      <button class="waBtn" id="waTodayBtn" type="button" title="Copia turni dei prossimi 7 giorni">📲 WA 7gg</button>
+    </div>
 
-      <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri temporali"></div>
-      
-      <!-- Griglia Card a 3 colonne -->
-      <div class="cards-flow" id="contentList" aria-live="polite"></div>
-
-      <!-- Sezione Accordion Già Acquistati -->
-      <section class="purchased-section" id="purchasedSection" style="display: none;">
-        <button class="accordion-header" id="togglePurchasedBtn" type="button" aria-expanded="false" aria-controls="purchasedList">
-          <div class="accordion-title">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-              <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
-            </svg>
-            <span>Già Acquistati (<span id="purchasedCount">0</span>)</span>
-          </div>
-          <svg class="chevron-icon" id="chevronIcon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
-          </svg>
-        </button>
-        <div class="accordion-body" id="purchasedList"></div>
-      </section>
+    <!-- LISTA GARE & RESOCONTO MENSILE -->
+    <main class="content-scroll">
+      <div id="list"></div>
     </main>
+
   </div>
+</div>
 
-  <!-- ======================= FINESTRE MODALI ======================= -->
-
-  <!-- MODALE: MANGA SPINE SHELF 3D (SCAFFALE COSTE) -->
-  <div class="modal-backdrop" id="shelfModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="shelfSeriesTitle">
-    <div class="modal-card shelf-modal-card">
-      <div class="modal-header">
-        <div class="overview-title-wrap">
-          <span class="item-tag-inline" id="shelfCategoryTag">Manga</span>
-          <h2 id="shelfSeriesTitle">Scaffale Collana</h2>
-        </div>
-        <button type="button" class="close-btn" id="closeShelfModalBtn" aria-label="Chiudi scaffale">&times;</button>
-      </div>
-
-      <p class="shelf-hint-text">Tocca un volume per vederne i dettagli o una sagoma vuota per aggiungerla agli Acquisti.</p>
-
-      <div class="shelf-viewport">
-        <div class="manga-shelf-3d" id="shelfSpineContainer"></div>
-        <div class="shelf-wood-base"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODALE DEDICATA: VERIFICA COLLEZIONE VIA SCANNER BARCODE -->
-  <div class="modal-backdrop" id="checkerModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="checkerModalTitle">
-    <div class="modal-card checker-modal-card">
-      <div class="modal-header">
-        <h2 id="checkerModalTitle">Verifica Collezione (Scanner)</h2>
-        <button type="button" class="close-btn" id="closeCheckerModalBtn" aria-label="Chiudi verifica">&times;</button>
-      </div>
-
-      <div class="checker-body">
-        <div class="checker-camera-box">
-          <div id="checkerCameraReader"></div>
-          <div class="checker-laser-line"></div>
-        </div>
-
-        <div class="checker-result-box idle" id="checkerResultBox">
-          <div class="checker-signal-icon" id="checkerSignalIcon">📷</div>
-          <div class="checker-signal-text">
-            <h3 id="checkerStatusTitle">Inquadra il codice a barre</h3>
-            <p id="checkerStatusDesc">Punta la fotocamera sull'ISBN per verificare istantaneamente se è già in collezione.</p>
-          </div>
-        </div>
-
-        <div class="checker-actions-footer">
-          <button type="button" class="btn-secondary" id="checkerResetBtn">Scansiona un Altro</button>
-          <button type="button" class="btn-primary" id="checkerAddToAcquistiBtn" style="display: none;">+ Aggiungi agli Acquisti</button>
-          <button type="button" class="btn-primary" id="checkerAddToPossedutiBtn" style="display: none;">+ Aggiungi ai Posseduti</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODALE STORICO COMPLETO -->
-  <div class="modal-backdrop" id="fullHistoryModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="fullHistoryTitle">
-    <div class="modal-card" style="max-width: 520px;">
-      <div class="modal-header">
-        <h2 id="fullHistoryTitle">Storico Aggiunte</h2>
-        <button type="button" class="close-btn" id="closeFullHistoryModalBtn" aria-label="Chiudi storico">&times;</button>
-      </div>
-      <div id="fullHistoryModalList" style="max-height: 60vh; overflow-y: auto; padding-right: 4px;"></div>
-    </div>
-  </div>
-
-  <!-- Modale Aggiungi Blocco Volumi (Batch) -->
-  <div class="modal-backdrop" id="batchModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 id="batchModalTitle">Aggiungi Blocco Volumi</h2>
-        <button type="button" class="close-btn" id="closeBatchModalBtn" aria-label="Chiudi modale">&times;</button>
-      </div>
-
-      <form id="batchItemForm">
-        <div class="input-group">
-          <label for="batchTitle">Titolo Serie</label>
-          <input type="text" id="batchTitle" list="existingTitlesListBatch" placeholder="es. Gachiakuta, Chainsaw Man..." required autocomplete="off">
-          <datalist id="existingTitlesListBatch"></datalist>
-        </div>
-
-        <div class="form-row">
-          <div class="input-group flex-1">
-            <label for="batchStartVol">Dal Volume #</label>
-            <input type="number" id="batchStartVol" min="1" value="1" required>
-          </div>
-          <div class="input-group flex-1">
-            <label for="batchEndVol">Al Volume #</label>
-            <input type="number" id="batchEndVol" min="1" value="10" required>
-          </div>
-        </div>
-
-        <div class="input-group">
-          <label for="batchTargetSet">Insieme di Destinazione</label>
-          <select id="batchTargetSet">
-            <option value="Posseduti">Posseduti (Tutti già in collezione)</option>
-            <option value="Acquisti">Acquisti (Da recuperare / Comprare)</option>
-          </select>
-        </div>
-
-        <div class="input-group">
-          <label for="batchCategorySelect">Categoria</label>
-          <select id="batchCategorySelect"></select>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="btn-secondary" id="cancelBatchBtn">Annulla</button>
-          <button type="submit" class="btn-primary" id="confirmBatchBtn">Crea Volumi</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Modale Inserimento/Modifica Elemento Singolo -->
-  <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 id="modalTitle">Nuovo Elemento</h2>
-        <button type="button" class="close-btn" id="closeModalBtn" aria-label="Chiudi modale">&times;</button>
-      </div>
-
-      <form id="itemForm">
-        <input type="hidden" id="editItemId" value="">
-
-        <div class="input-group">
-          <div class="label-with-hint">
-            <label for="itemTitle">Nome / Titolo</label>
-            <button type="button" class="scan-inline-btn" id="startScanBtn" title="Inquadra codice a barre con la fotocamera">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
-              </svg>
-              Scansiona ISBN
-            </button>
-          </div>
-          <input type="text" id="itemTitle" list="existingTitlesList" placeholder="es. Berserk, Batman, Sandman..." required autocomplete="off">
-          <datalist id="existingTitlesList"></datalist>
-        </div>
-
-        <div class="scanner-container" id="scannerContainer" style="display: none;">
-          <div class="scanner-header">
-            <span>Inquadra il codice a barre / ISBN</span>
-            <button type="button" class="close-scanner-btn" id="closeScannerBtn">&times;</button>
-          </div>
-          <div id="scannerReader"></div>
-          <div class="scanner-status" id="scannerStatus">Avvio fotocamera in corso...</div>
-        </div>
-
-        <div class="input-group">
-          <label for="targetSet">Insieme di destinazione</label>
-          <select id="targetSet">
-            <option value="Acquisti">Acquisti</option>
-            <option value="Posseduti">Posseduti</option>
-            <option value="Voti">Voti</option>
-            <option value="Liste">Liste</option>
-          </select>
-        </div>
-
-        <div class="form-row" id="purchasesFields">
-          <div class="input-group flex-1" id="dateGroupWrapper">
-            <label for="itemDate">Data di uscita</label>
-            <input type="date" id="itemDate">
-          </div>
-          <div class="input-group flex-1" id="numberGroupWrapper">
-            <label for="itemNumber">Numero / Vol.</label>
-            <input type="text" id="itemNumber" placeholder="es. 1, 14, Variant">
-          </div>
-        </div>
-
-        <!-- CHECKBOX FLAG VARIANT -->
-        <div class="input-group" id="variantGroupWrapper">
-          <label class="checkbox-row">
-            <input type="checkbox" id="itemVariantCheckbox">
-            <span class="custom-chk"></span>
-            <span style="font-size: 0.85rem; font-weight: 600;">★ Edizione Variant / Cover Alternativa (consente numeri doppi)</span>
-          </label>
-        </div>
-
-        <div class="input-group" id="completedGroupWrapper">
-          <label class="checkbox-row">
-            <input type="checkbox" id="itemCompletedCheckbox">
-            <span class="custom-chk"></span>
-            <span style="font-size: 0.85rem; font-weight: 600;">Opera / Serie Conclusa (Fine)</span>
-          </label>
-
-          <label class="checkbox-row" style="margin-top: 0.4rem;">
-            <input type="checkbox" id="itemReadCheckbox">
-            <span class="custom-chk"></span>
-            <span style="font-size: 0.85rem; font-weight: 600; color: var(--accent-cyan);">Volume / Opera già letta (Letto)</span>
-          </label>
-        </div>
-
-        <div class="rating-form-group" id="ratingInputGroup" style="display: none;">
-          <div class="form-row">
-            <div class="input-group flex-1">
-              <label for="itemScoreInput">Voto (0 - 100)</label>
-              <input type="number" id="itemScoreInput" min="0" max="100" placeholder="es. 85">
-            </div>
-            <div class="input-group flex-1" style="justify-content: flex-end; padding-bottom: 0.25rem;">
-              <label class="checkbox-row" style="margin-bottom: 0.2rem;">
-                <input type="checkbox" id="itemUnplayedCheckbox">
-                <span class="custom-chk"></span>
-                <span style="font-size: 0.8rem; font-weight: 600;">Non ancora letto / giocato</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div class="input-group">
-          <label for="categorySelect">Categoria</label>
-          <select id="categorySelect"></select>
-        </div>
-
-        <div class="input-group" id="newCategoryGroup">
-          <label for="newCategoryInput">Crea nuova categoria</label>
-          <input type="text" id="newCategoryInput" placeholder="es. Manga, Comics, Libri...">
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="btn-secondary" id="cancelBtn">Annulla</button>
-          <button type="submit" class="btn-primary">Salva</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Modale Panoramica Posseduti -->
-  <div class="modal-backdrop" id="overviewModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="overviewTitleDisplay">
-    <div class="modal-card overview-card">
-      <div class="modal-header">
-        <div class="overview-title-wrap">
-          <span class="item-tag-inline" id="overviewCategoryTag">Manga</span>
-          <h2 id="overviewTitleDisplay">Titolo Opera</h2>
-        </div>
-        <button type="button" class="close-btn" id="closeOverviewBtn" aria-label="Chiudi panoramica">&times;</button>
-      </div>
-
-      <div class="overview-body">
-        <div class="overview-stats-row">
-          <div class="stat-pill">
-            <span class="stat-label">Ultimo Volume Posseduto</span>
-            <span class="stat-value" id="overviewVolumeDisplay">#0</span>
-          </div>
-          <div class="stat-pill" id="overviewGapPill" style="display: none;">
-            <span class="stat-label">Stato Raccolta</span>
-            <span class="stat-value text-orange" id="overviewGapDisplay">Incompleto</span>
-          </div>
-        </div>
-
-        <div class="input-group" style="margin-top: 1rem;">
-          <div class="label-with-hint">
-            <label for="overviewReadingProgressInput">A che capitolo / pagina sei arrivato a leggere?</label>
-            <span class="smart-hint">Visibile solo qui</span>
-          </div>
-          <input type="text" id="overviewReadingProgressInput" placeholder="es. Cap. 142 oppure Pag. 85...">
-        </div>
-
-        <div class="input-group" style="margin-top: 0.85rem;">
-          <label for="overviewCommentInput">Note e commento personale</label>
-          <textarea id="overviewCommentInput" rows="4" placeholder="Scrivi qui i tuoi pensieri, impressioni personali o promemoria sulla trama..."></textarea>
-        </div>
-
-        <div class="modal-actions" style="margin-top: 1.2rem;">
-          <button type="button" class="btn-secondary" id="overviewEditFullBtn">Modifica Scheda Completa</button>
-          <button type="button" class="btn-primary" id="saveOverviewDetailsBtn">Salva Modifiche</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modale Statistiche -->
-  <div class="modal-backdrop" id="statsModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="statsModalTitle">
-    <div class="modal-card stats-modal-card">
-      <div class="modal-header">
-        <h2 id="statsModalTitle">Statistiche Collezione</h2>
-        <button type="button" class="close-btn" id="closeStatsBtn" aria-label="Chiudi statistiche">&times;</button>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-box">
-          <span class="stat-big-num" id="statTotalItems">0</span>
-          <span class="stat-box-desc">Totale Record</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-big-num text-cyan" id="statTotalOwned">0</span>
-          <span class="stat-box-desc">Volumi Posseduti</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-big-num text-orange" id="statAverageRating">-</span>
-          <span class="stat-box-desc">Media Voti (/100)</span>
-        </div>
-        <div class="stat-box">
-          <span class="stat-big-num text-green" id="statCompleteRate">100%</span>
-          <span class="stat-box-desc">Completezza Serie</span>
-        </div>
-      </div>
-
-      <div class="stats-category-section">
-        <h3 class="stats-sub-title">Dettaglio per Sotto-Categoria</h3>
-        <div class="stats-cat-list" id="statsCatList"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modale Impostazioni -->
-  <div class="modal-backdrop" id="settingsModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <button type="button" class="back-btn" id="settingsBackBtn" style="display: none;" title="Torna alle impostazioni" aria-label="Torna indietro">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
-            </svg>
-          </button>
-          <h2 id="settingsTitle">Impostazioni</h2>
-        </div>
-        <button type="button" class="close-btn" id="closeSettingsBtn" aria-label="Chiudi impostazioni">&times;</button>
-      </div>
-
-      <div class="settings-view" id="settingsMainView">
-        <div class="settings-menu-list">
-
-          <button type="button" class="settings-menu-item" id="goToAccountBtn">
-            <div class="menu-item-left">
-              <div class="menu-icon-box green">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-                </svg>
-              </div>
-              <div class="menu-item-text">
-                <span class="menu-item-title" id="accountUserEmail">Account Connesso</span>
-                <span class="menu-item-desc">Gestisci sessione o disconnettiti</span>
-              </div>
-            </div>
-            <span class="menu-arrow" aria-hidden="true">›</span>
-          </button>
-          
-          <div class="settings-menu-item-toggle">
-            <div class="menu-item-left">
-              <div class="menu-icon-box green">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
-                </svg>
-              </div>
-              <div class="menu-item-text">
-                <span class="menu-item-title">Notifiche Uscite Odierne</span>
-                <span class="menu-item-desc">Ricevi un avviso di sistema quando un volume è in uscita oggi</span>
-              </div>
-            </div>
-            <label class="switch-control" aria-label="Attiva o disattiva notifiche native">
-              <input type="checkbox" id="notificationsToggleCheckbox">
-              <span class="switch-slider"></span>
-            </label>
-          </div>
-
-          <button type="button" class="settings-menu-item" id="goToCategoriesBtn">
-            <div class="menu-item-left">
-              <div class="menu-icon-box orange">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M12 2l-5.5 9h11zM7 13.5A3.5 3.5 0 1 0 7 20.5 3.5 3.5 0 0 0 7 13.5zm9 .5h5v5h-5z"/>
-                </svg>
-              </div>
-              <div class="menu-item-text">
-                <span class="menu-item-title">Gestione Categorie</span>
-                <span class="menu-item-desc">Rinomina, elimina o crea nuove categorie</span>
-              </div>
-            </div>
-            <span class="menu-arrow" aria-hidden="true">›</span>
-          </button>
-
-          <button type="button" class="settings-menu-item" id="goToExportBtn">
-            <div class="menu-item-left">
-              <div class="menu-icon-box cyan">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
-                </svg>
-              </div>
-              <div class="menu-item-text">
-                <span class="menu-item-title">Esporta Backup JSON</span>
-                <span class="menu-item-desc">Salva un file locale dei tuoi dati</span>
-              </div>
-            </div>
-            <span class="menu-arrow" aria-hidden="true">›</span>
-          </button>
-
-          <button type="button" class="settings-menu-item" id="goToImportBtn">
-            <div class="menu-item-left">
-              <div class="menu-icon-box purple">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
-                </svg>
-              </div>
-              <div class="menu-item-text">
-                <span class="menu-item-title">Importa Backup JSON</span>
-                <span class="menu-item-desc">Ripristina un file esportato in precedenza</span>
-              </div>
-            </div>
-            <span class="menu-arrow" aria-hidden="true">›</span>
-          </button>
-
-          <button type="button" class="settings-menu-item" id="goToResetBtn">
-            <div class="menu-item-left">
-              <div class="menu-icon-box red">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-                </svg>
-              </div>
-              <div class="menu-item-text">
-                <span class="menu-item-title" style="color: var(--danger-color);">Ripristino di Fabbrica</span>
-                <span class="menu-item-desc">Svuota tutti i dati sia in locale che sul server</span>
-              </div>
-            </div>
-            <span class="menu-arrow" aria-hidden="true">›</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- VISTA 2: Schermata Account -->
-      <div class="settings-view" id="settingsAccountView" style="display: none;">
-        <p class="settings-desc">Sei autenticato con il tuo account Supabase. Tutti i dati sono sincronizzati in tempo reale e protetti da crittografia.</p>
-        <div class="account-info-box">
-          <span class="account-info-label">Email Utente:</span>
-          <span class="account-info-val" id="currentAccountDisplay">-</span>
-        </div>
-
-        <div class="modal-actions" style="margin-top: 1.5rem;">
-          <button type="button" class="btn-danger" id="logoutBtn" style="width: 100%;">
-            Disconnetti Account
-          </button>
-        </div>
-      </div>
-
-      <!-- VISTA 3: Gestione Categorie -->
-      <div class="settings-view" id="settingsCategoriesView" style="display: none;">
-        <p class="settings-desc">Modifica o elimina le categorie esistenti. Rinomina una categoria per aggiornare tutti i volumi collegati.</p>
-
-        <div class="add-cat-inline-wrap">
-          <input type="text" id="newCatManageInput" placeholder="Nuova categoria...">
-          <button type="button" class="btn-primary" id="addCatManageBtn">+ Aggiungi</button>
-        </div>
-
-        <ul class="manage-cat-list" id="manageCatList"></ul>
-      </div>
-
-      <!-- VISTA 4: Esporta JSON -->
-      <div class="settings-view" id="settingsExportView" style="display: none;">
-        <p class="settings-desc">Seleziona quali insiemi includere nel file JSON:</p>
-
-        <div class="export-checkbox-group">
-          <label class="checkbox-row">
-            <input type="checkbox" id="exportAcquisti" checked>
-            <span class="custom-chk"></span>
-            <span>Acquisti (inclusi già acquistati)</span>
-          </label>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="exportPosseduti" checked>
-            <span class="custom-chk"></span>
-            <span>Posseduti (inclusi progressi e note)</span>
-          </label>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="exportVoti" checked>
-            <span class="custom-chk"></span>
-            <span>Voti (con valutazioni e stato)</span>
-          </label>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="exportListe" checked>
-            <span class="custom-chk"></span>
-            <span>Liste (elementi personalizzati)</span>
-          </label>
-        </div>
-
-        <div class="modal-actions" style="margin-top: 1.25rem;">
-          <button type="button" class="btn-primary" id="confirmExportBtn" style="width: 100%;">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;" aria-hidden="true">
-              <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
-            </svg>
-            Scarica Backup JSON
-          </button>
-        </div>
-      </div>
-
-      <!-- VISTA 5: Importa JSON -->
-      <div class="settings-view" id="settingsImportView" style="display: none;">
-        <p class="settings-desc">Carica un file JSON per ripristinare i dati nei rispettivi insiemi:</p>
-
-        <input type="file" id="importJsonFileInput" accept=".json" style="display: none;">
-        <button type="button" class="btn-primary" id="triggerImportBtn" style="width: 100%; margin-top: 1rem;">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="margin-right: 6px;" aria-hidden="true">
-            <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
-          </svg>
-          Scegli File JSON da Importare
-        </button>
-      </div>
-
-      <!-- VISTA 6: Reset -->
-      <div class="settings-view" id="settingsResetView" style="display: none;">
-        <p class="settings-desc" style="color: var(--danger-color);">Attenzione: Questa operazione cancellerà permanentemente tutti gli elementi sia in locale che dal server cloud.</p>
-
-        <div class="modal-actions" style="margin-top: 1.5rem;">
-          <button type="button" class="btn-secondary" id="cancelResetBtn">Annulla</button>
-          <button type="button" class="btn-danger" id="confirmFactoryResetBtn">Sì, Cancella Tutto</button>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- Toast Notifica "Annulla" -->
-  <div class="undo-toast" id="undoToast" role="status" aria-live="assertive">
-    <span id="undoToastMsg">Elemento eliminato</span>
-    <button type="button" id="undoBtn">Annulla</button>
-  </div>
-
-  <!-- Pulsante flottante (+) -->
-  <button class="fab-btn" id="openModalBtn" title="Aggiungi elemento (Tasto N)" aria-label="Aggiungi nuovo elemento" type="button" style="display: none;">
-    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-    </svg>
+<!-- BOTTOM BAR MOBILE -->
+<nav class="bottom-nav-bar" id="bottomNavBar">
+  <button type="button" class="b-nav-item active" id="bNavHome">
+    <span class="b-nav-icon">🏀</span>
+    <span class="b-nav-label">Gare</span>
   </button>
+  <button type="button" class="b-nav-item" id="bNavToday">
+    <span class="b-nav-icon">📅</span>
+    <span class="b-nav-label">Oggi</span>
+  </button>
+  <button type="button" class="b-nav-item b-nav-add auth-only" id="bNavAdd" title="Nuova Partita">
+    <span class="b-nav-add-icon">+</span>
+  </button>
+  <button type="button" class="b-nav-item" id="bNavResoconto">
+    <span class="b-nav-icon">📊</span>
+    <span class="b-nav-label">Compensi</span>
+  </button>
+  <button type="button" class="b-nav-item" id="bNavAlerts">
+    <span class="b-nav-icon" id="bNavAlertIcon">✓</span>
+    <span class="b-nav-label">Alert</span>
+  </button>
+</nav>
 
-  <!-- Collegamento diretto allo script in js/main.js -->
-  <script type="module" src="js/main.js"></script>
+<!-- INPUT FILE NASCOSTO PER IMPORT -->
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+<datalist id="namesList"></datalist>
+<datalist id="categoriesList"></datalist>
+
+<!-- TOAST NOTIFICHE -->
+<div id="msg" role="status"></div>
+
+<!-- BANNER DI ACCESSO RISERVATO -->
+<div class="robanner" id="roBanner">
+  <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
+  <h3 style="margin: 0 0 8px; color: var(--ink);">Accesso Riservato</h3>
+  <p style="color: var(--mute); margin: 0 0 16px; font-size: 13px;">
+    Il calendario e le designazioni dei turni sono private. Effettua l'accesso come amministratore per visualizzare o gestire le partite.
+  </p>
+  <button type="button" class="primary" onclick="window.handleAuthClick()" style="width: 100%;">
+    Accedi con Account
+  </button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>
