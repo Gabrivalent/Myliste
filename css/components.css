@@ -558,6 +558,28 @@
   white-space: nowrap;
 }
 
+/* PULSANTE RAPIDO +1 SULLE CARD */
+.quick-plus-btn {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: var(--accent-cyan);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.quick-plus-btn:hover,
+.quick-plus-btn:active {
+  background: var(--accent-cyan);
+  color: #0b1120;
+  border-color: var(--accent-cyan);
+  transform: scale(1.05);
+}
+
 /* SEZIONE GIÀ ACQUISTATI */
 .purchased-section { margin-top: 1.5rem; border-top: 1px solid var(--border-subtle); padding-top: 1.25rem; }
 .accordion-header {
