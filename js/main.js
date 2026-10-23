@@ -169,7 +169,7 @@ if (logoutBtn) {
 }
 
 // ----------------------------------------------------
-// REALTIME & DATI SUPABASE (SENZA user_id O is_read)
+// REALTIME & DATI SUPABASE (SALVATAGGIO SICURO SENZA ERRORI 400)
 // ----------------------------------------------------
 function setupRealtimeSubscriptions() {
   if (!supabaseClient || !currentUser) return;
@@ -282,13 +282,11 @@ async function syncItemToSupabase(item) {
   if (!supabaseClient || !currentUser) return;
 
   try {
-    // Gestione note con ISBN incluso in modo sicuro senza rompere lo schema
     let cleanComment = item.privateComment || '';
     if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
       cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
     }
 
-    // SOLO colonne sicuramente presenti nella tabella items
     const payload = {
       title: item.title,
       set_type: item.set,
@@ -368,6 +366,7 @@ async function syncBatchItemsToSupabase(itemsArray) {
     setCloudStatus('error');
   }
 }
+
 async function deleteItemFromSupabase(id) {
   if (!supabaseClient || !currentUser) return;
 
@@ -1686,7 +1685,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
     `;
   }
 
-  // Genera il badge data per la sezione Acquisti
   let dateBadgeHtml = '';
   if (item.set === 'Acquisti' && item.date) {
     const badgeClass = dateInfo.badgeType === 'today' ? 'badge-today' :
@@ -1962,6 +1960,91 @@ if (shelfModalBackdrop) {
 }
 
 // ----------------------------------------------------
+// RICERCA ISBN CON CATALOGO SBN / OPAC ITALIANO + GOOGLE + OPEN LIBRARY
+// ----------------------------------------------------
+async function searchIsbnData(isbn) {
+  const rawDigits = isbn.replace(/[^0-9X]/gi, '');
+  const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
+
+  let titleFound = '';
+  let volumeFound = '1';
+  let categoryFound = 'Manga';
+
+  // 1. Google Books API
+  try {
+    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+    const data = await res.json();
+    if (data.items && data.items.length > 0) {
+      const info = data.items[0].volumeInfo;
+      titleFound = info.title || '';
+      const numMatch = (info.title + ' ' + (info.subtitle || '')).match(/(?:vol(?:ume)?\.?|n\.?|#)\s*(\d+)/i) || titleFound.match(/^(.*?)\s+#?(\d+)$/);
+      if (numMatch) {
+        volumeFound = numMatch[1] && !isNaN(numMatch[1]) ? numMatch[1] : (numMatch[2] || '1');
+      }
+      return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
+    }
+  } catch (e) {
+    console.warn("Google Books non riuscito:", e);
+  }
+
+  // 2. Catalogo SBN / OPAC Italiano (ICCU)
+  try {
+    const sbnUrl = `https://opac.sbn.it/opacmobile/ricercaAvanzata?isbn=${cleanIsbn}&formato=json`;
+    const resSbn = await fetch(sbnUrl);
+    if (resSbn.ok) {
+      const sbnData = await resSbn.json();
+      if (sbnData && sbnData.risultati && sbnData.risultati.length > 0) {
+        const item = sbnData.risultati[0];
+        titleFound = item.titolo || item.titoloUniforme || '';
+
+        if (titleFound.includes('/')) {
+          titleFound = titleFound.split('/')[0].trim();
+        }
+
+        const numMatch = titleFound.match(/(?:vol(?:ume)?\.?|n\.?|#)\s*(\d+)/i) || titleFound.match(/(\d+)$/);
+        if (numMatch) {
+          volumeFound = numMatch[1];
+          titleFound = titleFound.replace(numMatch[0], '').trim();
+        }
+
+        return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
+      }
+    }
+  } catch (e) {
+    console.warn("SBN OPAC non riuscito:", e);
+  }
+
+  // 3. Open Library (fallback internazionale)
+  try {
+    const resOl = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
+    if (resOl.ok) {
+      const dataOl = await resOl.json();
+      if (dataOl && dataOl.title) {
+        titleFound = dataOl.title.trim();
+        const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
+        if (numMatch) {
+          titleFound = numMatch[1].trim();
+          volumeFound = numMatch[2].trim();
+        }
+        return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
+      }
+    }
+  } catch (e) {
+    console.warn("Open Library non riuscito:", e);
+  }
+
+  return { title: '', volume: '1', category: 'Manga' };
+}
+
+function detectCategory(title) {
+  const t = title.toLowerCase();
+  if (/batman|superman|spider-man|x-men|marvel|dc|comic|deadpool|avengers/i.test(t)) {
+    return 'Comics';
+  }
+  return 'Manga';
+}
+
+// ----------------------------------------------------
 // SCANNER BARCODE CON MODIFICA TITOLO, VOLUME E CATEGORIA
 // ----------------------------------------------------
 function openCheckerModal() {
@@ -2011,77 +2094,25 @@ async function processBarcodeVerification(isbn) {
   }
 
   checkerSignalIcon.textContent = '⏳';
-  checkerStatusTitle.textContent = 'Ricerca dati ISBN...';
+  checkerStatusTitle.textContent = 'Ricerca nel catalogo italiano...';
   checkerStatusDesc.textContent = `Codice: ${isbn}`;
 
   const rawDigits = isbn.replace(/[^0-9X]/gi, '');
   const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
 
-  let titleFound = '';
-  let volumeFound = '1';
-  let isVariant = false;
-  let detectedCategory = 'Generale';
+  const result = await searchIsbnData(cleanIsbn);
 
-  try {
-    // 1. Google Books API
-    const resGoogle = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-    const dataGoogle = await resGoogle.json();
-
-    if (dataGoogle.items && dataGoogle.items.length > 0) {
-      const volumeInfo = dataGoogle.items[0].volumeInfo;
-      const rawTitle = volumeInfo.title || '';
-      const rawDesc = volumeInfo.description || '';
-      const categoriesText = (volumeInfo.categories || []).join(' ').toLowerCase();
-
-      if (/manga/i.test(`${rawTitle} ${rawDesc} ${categoriesText}`)) {
-        detectedCategory = 'Manga';
-      } else if (/comic|graphic novel|dc|marvel|fumett/i.test(`${rawTitle} ${rawDesc} ${categoriesText}`)) {
-        detectedCategory = 'Comics';
-      } else {
-        detectedCategory = 'Libri';
-      }
-
-      if (/variant|cover\s*[b-z]|limited|special\s*edition/i.test(`${rawTitle} ${rawDesc}`)) {
-        isVariant = true;
-      }
-
-      titleFound = rawTitle;
-      const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
-      if (numMatch) {
-        titleFound = numMatch[1].trim();
-        volumeFound = numMatch[2].trim();
-      }
-    } else {
-      // 2. Open Library API
-      const resOpenLib = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
-      if (resOpenLib.ok) {
-        const openLibData = await resOpenLib.json();
-        if (openLibData && openLibData.title) {
-          titleFound = openLibData.title.trim();
-          detectedCategory = 'Libri';
-          const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
-          if (numMatch) {
-            titleFound = numMatch[1].trim();
-            volumeFound = numMatch[2].trim();
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("Lookup barcode fallito:", err);
-  }
-
-  // Pre-assegna la categoria attiva se non è 'Tutte'
+  let initialCategory = result.category;
   if (activeCategory !== 'Tutte') {
-    detectedCategory = activeCategory;
+    initialCategory = activeCategory;
   }
 
   lastDetectedCheckItem = {
     isbn: cleanIsbn,
-    title: titleFound || '',
-    number: volumeFound || '1',
-    category: detectedCategory,
-    isVariant: isVariant
+    title: result.title || '',
+    number: result.volume || '1',
+    category: initialCategory,
+    isVariant: false
   };
 
   displayBarcodeEvaluation();
@@ -2092,7 +2123,6 @@ function displayBarcodeEvaluation() {
 
   const { isbn, title, number, category, isVariant } = lastDetectedCheckItem;
 
-  // Controllo duplicati primario per ISBN, secondario per Titolo + Volume
   const exactOwnedByIsbn = appData.items.find(i => 
     i.set === 'Posseduti' && 
     i.isbn && 
@@ -2126,7 +2156,6 @@ function displayBarcodeEvaluation() {
     checkerSignalIcon.textContent = '✅';
     checkerStatusTitle.textContent = 'NON PRESENTE: CONFERMA I DATI';
 
-    // Genera options delle categorie esistenti
     const categoryOptionsHtml = appData.categories.map(cat => {
       const isSelected = cat.toLowerCase() === (category || 'Generale').toLowerCase();
       return `<option value="${escapeHtml(cat)}" ${isSelected ? 'selected' : ''}>${escapeHtml(cat)}</option>`;
@@ -2514,7 +2543,7 @@ if (batchItemForm) {
 }
 
 // ----------------------------------------------------
-// SCANNER ISBN NEL FORM CON DOPPIO LOOKUP
+// SCANNER ISBN NEL FORM CON LOOKUP SBN/GOOGLE
 // ----------------------------------------------------
 if (startScanBtn) {
   startScanBtn.addEventListener('click', () => {
@@ -2557,38 +2586,18 @@ async function fetchBookDataByISBN(isbn) {
     const rawDigits = isbn.replace(/[^0-9X]/gi, '');
     const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
 
-    const resGoogle = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-    const dataGoogle = await resGoogle.json();
-
-    if (dataGoogle.items && dataGoogle.items.length > 0) {
-      applyFoundBookTitle(dataGoogle.items[0].volumeInfo.title || '');
-      return;
+    const result = await searchIsbnData(cleanIsbn);
+    if (result && result.title) {
+      itemTitle.value = result.title;
+      itemNumber.value = result.volume || '1';
+      categorySelect.value = result.category || 'Generale';
+      showToastNotice(`Riconosciuto: "${result.title}"!`);
+    } else {
+      showToastNotice(`ISBN ${cleanIsbn} rilevato. Inserisci il titolo.`);
     }
-
-    const resOpenLib = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
-    if (resOpenLib.ok) {
-      const openLibData = await resOpenLib.json();
-      if (openLibData && openLibData.title) {
-        applyFoundBookTitle(openLibData.title);
-        return;
-      }
-    }
-
-    showToastNotice(`ISBN ${cleanIsbn} rilevato. Inserisci il titolo.`);
   } catch (err) {
     showToastNotice('Ricerca online non riuscita. Compila a mano.');
   }
-}
-
-function applyFoundBookTitle(rawTitle) {
-  const numMatch = rawTitle.match(/^(.*?)\s+#?(\d+)$/);
-  if (numMatch) {
-    itemTitle.value = numMatch[1].trim();
-    itemNumber.value = numMatch[2].trim();
-  } else {
-    itemTitle.value = rawTitle.trim();
-  }
-  showToastNotice(`Riconosciuto: "${itemTitle.value}"!`);
 }
 
 // ----------------------------------------------------
