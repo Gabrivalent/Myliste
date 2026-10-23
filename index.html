@@ -10,18 +10,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Collezione">
 
-  <!-- Font Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <!-- Fogli di stile CSS suddivisi nei 4 moduli -->
+  
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/components.css">
   <link rel="stylesheet" href="css/modals.css">
   <link rel="stylesheet" href="css/responsive.css">
 
-  <!-- CDN Esterne per Supabase e Scanner Barcode HTML5 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
@@ -220,11 +217,8 @@
       </div>
 
       <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri temporali"></div>
-      
-      <!-- Griglia Card a 3 colonne -->
       <div class="cards-flow" id="contentList" aria-live="polite"></div>
 
-      <!-- Sezione Accordion Già Acquistati -->
       <section class="purchased-section" id="purchasedSection" style="display: none;">
         <button class="accordion-header" id="togglePurchasedBtn" type="button" aria-expanded="false" aria-controls="purchasedList">
           <div class="accordion-title">
@@ -242,9 +236,7 @@
     </main>
   </div>
 
-  <!-- ======================= FINESTRE MODALI ======================= -->
-
-  <!-- MODALE: MANGA SPINE SHELF 3D (SCAFFALE COSTE) -->
+  <!-- MODALE: MANGA SPINE SHELF 3D -->
   <div class="modal-backdrop" id="shelfModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="shelfSeriesTitle">
     <div class="modal-card shelf-modal-card">
       <div class="modal-header">
@@ -264,7 +256,7 @@
     </div>
   </div>
 
-  <!-- MODALE DEDICATA: VERIFICA COLLEZIONE VIA SCANNER BARCODE -->
+  <!-- MODALE: VERIFICA BARCODE -->
   <div class="modal-backdrop" id="checkerModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="checkerModalTitle">
     <div class="modal-card checker-modal-card">
       <div class="modal-header">
@@ -306,7 +298,7 @@
     </div>
   </div>
 
-  <!-- Modale Aggiungi Blocco Volumi (Batch) -->
+  <!-- MODALE BLOCCO VOLUMI (BATCH) -->
   <div class="modal-backdrop" id="batchModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="batchModalTitle">
     <div class="modal-card">
       <div class="modal-header">
@@ -353,7 +345,7 @@
     </div>
   </div>
 
-  <!-- Modale Inserimento/Modifica Elemento Singolo -->
+  <!-- MODALE FORM SINGOLO -->
   <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-card">
       <div class="modal-header">
@@ -408,12 +400,11 @@
           </div>
         </div>
 
-        <!-- CHECKBOX FLAG VARIANT -->
         <div class="input-group" id="variantGroupWrapper">
           <label class="checkbox-row">
             <input type="checkbox" id="itemVariantCheckbox">
             <span class="custom-chk"></span>
-            <span style="font-size: 0.85rem; font-weight: 600;">★ Edizione Variant / Cover Alternativa (consente numeri doppi)</span>
+            <span style="font-size: 0.85rem; font-weight: 600;">★ Edizione Variant / Cover Alternativa</span>
           </label>
         </div>
 
@@ -465,7 +456,7 @@
     </div>
   </div>
 
-  <!-- Modale Panoramica Posseduti -->
+  <!-- MODALE PANORAMICA POSSEDUTI -->
   <div class="modal-backdrop" id="overviewModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="overviewTitleDisplay">
     <div class="modal-card overview-card">
       <div class="modal-header">
@@ -509,7 +500,7 @@
     </div>
   </div>
 
-  <!-- Modale Statistiche -->
+  <!-- MODALE STATISTICHE -->
   <div class="modal-backdrop" id="statsModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="statsModalTitle">
     <div class="modal-card stats-modal-card">
       <div class="modal-header">
@@ -543,7 +534,7 @@
     </div>
   </div>
 
-  <!-- Modale Impostazioni -->
+  <!-- MODALE IMPOSTAZIONI -->
   <div class="modal-backdrop" id="settingsModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="modal-card">
       <div class="modal-header">
@@ -560,7 +551,6 @@
 
       <div class="settings-view" id="settingsMainView">
         <div class="settings-menu-list">
-
           <button type="button" class="settings-menu-item" id="goToAccountBtn">
             <div class="menu-item-left">
               <div class="menu-icon-box green">
@@ -580,7 +570,7 @@
             <div class="menu-item-left">
               <div class="menu-icon-box green">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+                  <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
                 </svg>
               </div>
               <div class="menu-item-text">
@@ -658,7 +648,7 @@
 
       <!-- VISTA 2: Schermata Account -->
       <div class="settings-view" id="settingsAccountView" style="display: none;">
-        <p class="settings-desc">Sei autenticato con il tuo account Supabase. Tutti i dati sono sincronizzati in tempo reale e protetti da crittografia.</p>
+        <p class="settings-desc">Sei autenticato con il tuo account Supabase. I dati sono sincronizzati in tempo reale.</p>
         <div class="account-info-box">
           <span class="account-info-label">Email Utente:</span>
           <span class="account-info-val" id="currentAccountDisplay">-</span>
@@ -738,7 +728,7 @@
 
       <!-- VISTA 6: Reset -->
       <div class="settings-view" id="settingsResetView" style="display: none;">
-        <p class="settings-desc" style="color: var(--danger-color);">Attenzione: Questa operazione cancellerà permanentemente tutti gli elementi sia in locale che dal server cloud.</p>
+        <p class="settings-desc" style="color: var(--danger-color);">Attenzione: Questa operazione cancellerà permanentemente tutti gli elementi sia in locale che sul server cloud.</p>
 
         <div class="modal-actions" style="margin-top: 1.5rem;">
           <button type="button" class="btn-secondary" id="cancelResetBtn">Annulla</button>
@@ -762,7 +752,6 @@
     </svg>
   </button>
 
-  <!-- Collegamento diretto allo script in js/main.js -->
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
