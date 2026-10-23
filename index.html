@@ -288,11 +288,21 @@
     </div>
   </div>
 
-  <!-- MODALE: VERIFICA BARCODE -->
+  <!-- MODALE: SCANNER RAPIDO 1-TAP (A RAFFICA) -->
   <div class="modal-backdrop" id="checkerModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="checkerModalTitle">
     <div class="modal-card checker-modal-card">
       <div class="modal-header">
-        <h2 id="checkerModalTitle">Verifica Collezione (Scanner)</h2>
+        <div class="scanner-header-left">
+          <h2 id="checkerModalTitle">Scanner Rapido</h2>
+          <!-- Preset destinazione rapida -->
+          <div class="scanner-preset-pill">
+            <span>Salva in:</span>
+            <select id="scannerTargetSetPreset" aria-label="Destinazione scansione predefinita">
+              <option value="Posseduti" selected>Posseduti</option>
+              <option value="Acquisti">Acquisti</option>
+            </select>
+          </div>
+        </div>
         <button type="button" class="close-btn" id="closeCheckerModalBtn" aria-label="Chiudi verifica">&times;</button>
       </div>
 
@@ -306,14 +316,42 @@
           <div class="checker-signal-icon" id="checkerSignalIcon">📷</div>
           <div class="checker-signal-text">
             <h3 id="checkerStatusTitle">Inquadra il codice a barre</h3>
-            <p id="checkerStatusDesc">Punta la fotocamera sull'ISBN per verificare istantaneamente se è già in collezione.</p>
+            <p id="checkerStatusDesc">Punta la fotocamera sull'ISBN per verificare o aggiungere istantaneamente.</p>
+          </div>
+        </div>
+
+        <!-- Pannello modifiche opzionale a comparsa -->
+        <div class="scanner-manual-details" id="checkerManualDetailsPanel" style="display: none;">
+          <div class="form-row">
+            <div class="input-group flex-1">
+              <label for="scannerCustomTitle">Titolo</label>
+              <input type="text" id="scannerCustomTitle">
+            </div>
+            <div class="input-group" style="width: 80px;">
+              <label for="scannerCustomVol">Vol. #</label>
+              <input type="text" id="scannerCustomVol">
+            </div>
+          </div>
+          <div class="form-row" style="margin-top: 0.5rem;">
+            <div class="input-group flex-1">
+              <label for="scannerCustomCat">Categoria</label>
+              <select id="scannerCustomCat"></select>
+            </div>
+            <div class="input-group flex-1" style="justify-content: flex-end; padding-bottom: 0.4rem;">
+              <label class="checkbox-row">
+                <input type="checkbox" id="scannerCustomVariant">
+                <span class="custom-chk"></span>
+                <span style="font-size: 0.8rem; font-weight: 700;">★ Variant</span>
+              </label>
+            </div>
           </div>
         </div>
 
         <div class="checker-actions-footer">
-          <button type="button" class="btn-secondary" id="checkerResetBtn">Scansiona un Altro</button>
-          <button type="button" class="btn-primary" id="checkerAddToAcquistiBtn" style="display: none;">+ Aggiungi agli Acquisti</button>
-          <button type="button" class="btn-primary" id="checkerAddToPossedutiBtn" style="display: none;">+ Aggiungi ai Posseduti</button>
+          <button type="button" class="btn-secondary" id="checkerEditDetailsBtn" style="display: none;">Modifica Dettagli</button>
+          <button type="button" class="btn-primary fast-scan-action-btn" id="checkerFastAddBtn" style="display: none;">
+            + Aggiungi a Posseduti (1-Tap)
+          </button>
         </div>
       </div>
     </div>
