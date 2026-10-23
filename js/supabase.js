@@ -25,10 +25,6 @@ export function setCloudStatus(status) {
 }
 
 export function formatRowToItem(row) {
-  const comment = row.private_comment || '';
-  const isbnMatch = comment.match(/\[ISBN:\s*([0-9X]+)\]/i);
-  const extractedIsbn = isbnMatch ? isbnMatch[1] : null;
-
   return {
     id: Number(row.id),
     title: row.title,
@@ -36,7 +32,7 @@ export function formatRowToItem(row) {
     category: row.category,
     date: row.date,
     number: row.number,
-    isbn: extractedIsbn,
+    isbn: row.isbn || null,
     rating: row.rating,
     unplayed: Boolean(row.unplayed),
     purchased: Boolean(row.purchased),
@@ -45,43 +41,35 @@ export function formatRowToItem(row) {
     isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
     missingGapNotice: row.missing_gap_notice,
     readingChapter: row.reading_chapter || '',
-    privateComment: comment,
+    privateComment: row.private_comment || '',
     createdAt: row.created_at || new Date().toISOString()
   };
 }
 
-export function ensureValidInt4Id(item) {
-  let numericId = parseInt(item.id, 10);
-  if (isNaN(numericId) || numericId <= 0 || numericId > 2147483647) {
-    numericId = Math.floor(Math.random() * 1900000000) + 1;
-    item.id = numericId;
-  }
-  return numericId;
-}
-
 export function createPayloadFromItem(item) {
-  let cleanComment = item.privateComment || '';
-  if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
-    cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
-  }
-
-  const validId = ensureValidInt4Id(item);
-
-  return {
-    id: validId,
+  const payload = {
     title: item.title,
     set_type: item.set,
     category: item.category || 'Generale',
     date: item.date || null,
     number: item.number ? String(item.number) : null,
+    isbn: item.isbn ? String(item.isbn).trim() : null,
     rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
     unplayed: Boolean(item.unplayed),
     purchased: Boolean(item.purchased),
     completed: Boolean(item.completed),
     missing_gap_notice: item.missingGapNotice || null,
     reading_chapter: item.readingChapter || null,
-    private_comment: cleanComment
+    private_comment: item.privateComment || ''
   };
+
+  // Se l'elemento esiste già sul database, includiamo l'id per fare update (upsert)
+  const numericId = parseInt(item.id, 10);
+  if (!isNaN(numericId) && numericId > 0) {
+    payload.id = numericId;
+  }
+
+  return payload;
 }
 
 export async function syncItemToSupabase(item, onSaveCallback) {
@@ -97,6 +85,7 @@ export async function syncItemToSupabase(item, onSaveCallback) {
 
     if (error) throw error;
 
+    // Supabase restituisce l'id generato/assegnato, aggiorniamo il client
     if (data && data[0] && data[0].id) {
       item.id = Number(data[0].id);
       if (onSaveCallback) onSaveCallback();
@@ -113,8 +102,15 @@ export async function syncBatchItemsToSupabase(itemsArray) {
 
   try {
     const payload = itemsArray.map(createPayloadFromItem);
-    const { error } = await supabaseClient.from('items').upsert(payload);
+    const { data, error } = await supabaseClient.from('items').upsert(payload).select();
     if (error) throw error;
+
+    if (data && data.length === itemsArray.length) {
+      data.forEach((row, idx) => {
+        itemsArray[idx].id = Number(row.id);
+      });
+    }
+
     setCloudStatus('online');
   } catch (err) {
     console.error('Errore sync batch items:', err);
@@ -127,7 +123,7 @@ export async function deleteItemFromSupabase(id) {
 
   try {
     const numericId = parseInt(id, 10);
-    if (isNaN(numericId) || numericId <= 0 || numericId > 2147483647) return;
+    if (isNaN(numericId) || numericId <= 0) return;
 
     const { error } = await supabaseClient.from('items').delete().eq('id', numericId);
     if (error) throw error;
