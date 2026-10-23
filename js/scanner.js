@@ -221,6 +221,8 @@ function startScannerEngine(readerId, appData, activeCategory, onFastAddCallback
 
   const onSuccess = async (decodedText) => {
     const validIsbn = cleanAndExtractIsbn(decodedText);
+    
+    // Se stiamo già mostrando un risultato o il codice è identico, non toccare la UI (zero flickering)
     if (!validIsbn || isScanThrottled || validIsbn === lastDecodedCode) return;
 
     isScanThrottled = true;
@@ -228,9 +230,10 @@ function startScannerEngine(readerId, appData, activeCategory, onFastAddCallback
 
     await handleBarcodeScanned(validIsbn, appData, activeCategory, onFastAddCallback);
 
+    // Mantiene bloccata la scansione finché l'utente non aggiunge o passano 2.5 secondi
     setTimeout(() => {
       isScanThrottled = false;
-    }, 1500);
+    }, 2500);
   };
 
   html5QrCodeScanner.start({ facingMode: "environment" }, config, onSuccess, () => {})
