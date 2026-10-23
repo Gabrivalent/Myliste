@@ -1,273 +1,322 @@
 // js/scanner.js
 
 export let html5QrCodeScanner = null;
-export let checkerScanner = null;
 export let lastDetectedCheckItem = null;
+let isScanThrottled = false;
+let lastDecodedCode = null;
 
 export function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
-export function detectCategory(title) {
-  const t = (title || '').toLowerCase();
-  if (/batman|superman|spider-man|x-men|marvel|dc|comic|deadpool|avengers/i.test(t)) {
-    return 'Comics';
+export function parseMangaTitleAndVolume(rawTitle) {
+  if (!rawTitle) return { title: '', volume: '1', isVariant: false };
+
+  let title = rawTitle.trim();
+  let volume = '1';
+  let isVariant = false;
+
+  if (/variant/i.test(title)) {
+    isVariant = true;
   }
-  return 'Manga';
+
+  // Cerca pattern tipo: Titolo 12, Titolo n. 12, Titolo #12, Titolo vol. 12
+  const volRegex = /(?:[#№]|vol\.?|volume|n\.?)\s*(\d+)/i;
+  const trailingNumRegex = /\s+(\d+)(?:\s*\[.*\]|\s*\(.*\))?$/;
+
+  const matchVol = title.match(volRegex);
+  if (matchVol) {
+    volume = matchVol[1];
+    title = title.replace(matchVol[0], '').trim();
+  } else {
+    const matchTrailing = title.match(trailingNumRegex);
+    if (matchTrailing) {
+      volume = matchTrailing[1];
+      title = title.replace(matchTrailing[0], '').trim();
+    }
+  }
+
+  // Pulizia suffissi editoriali tipici italiani
+  title = title.replace(/\s*-\s*edizione italiana.*$/i, '');
+  title = title.replace(/\s*\(.*variant.*\)$/i, '');
+  title = title.replace(/\s*\[.*variant.*\]$/i, '');
+
+  return {
+    title: title.trim(),
+    volume: String(parseInt(volume, 10) || 1),
+    isVariant
+  };
 }
 
+// ----------------------------------------------------
+// MULTI-PROVIDER ISBN LOOKUP (SBN OPAC -> GOOGLE BOOKS -> OPEN LIBRARY)
+// ----------------------------------------------------
 export async function searchIsbnData(isbn) {
-  const rawDigits = isbn.replace(/[^0-9X]/gi, '');
-  const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
+  const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
 
-  let titleFound = '';
-  let volumeFound = '1';
-  let categoryFound = 'Manga';
-
-  // 1. Google Books API
+  // 1. Tenta query su SBN OPAC Italiano (Migliore per manga italiani)
   try {
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-    const data = await res.json();
-    if (data.items && data.items.length > 0) {
-      const info = data.items[0].volumeInfo;
-      titleFound = info.title || '';
-      const numMatch = (info.title + ' ' + (info.subtitle || '')).match(/(?:vol(?:ume)?\.?|n\.?|#)\s*(\d+)/i) || titleFound.match(/^(.*?)\s+#?(\d+)$/);
-      if (numMatch) {
-        volumeFound = numMatch[1] && !isNaN(numMatch[1]) ? numMatch[1] : (numMatch[2] || '1');
-      }
-      return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
-    }
-  } catch (e) {
-    console.warn("Google Books fallito:", e);
-  }
-
-  // 2. Catalogo SBN / OPAC Italiano (ICCU)
-  try {
-    const sbnUrl = `https://opac.sbn.it/opacmobile/ricercaAvanzata?isbn=${cleanIsbn}&formato=json`;
-    const resSbn = await fetch(sbnUrl);
-    if (resSbn.ok) {
-      const sbnData = await resSbn.json();
-      if (sbnData && sbnData.risultati && sbnData.risultati.length > 0) {
-        const item = sbnData.risultati[0];
-        titleFound = item.titolo || item.titoloUniforme || '';
-
-        if (titleFound.includes('/')) {
-          titleFound = titleFound.split('/')[0].trim();
+    const sbnUrl = `https://opac.sbn.it/oai-pmh?verb=GetRecord&identifier=oai:oaicat.sbn.it:${cleanIsbn}&metadataPrefix=marc21`;
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(sbnUrl)}`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.contents && data.contents.includes('<title>')) {
+        const titleMatch = data.contents.match(/<title>(.*?)<\/title>/i);
+        if (titleMatch && titleMatch[1]) {
+          const parsed = parseMangaTitleAndVolume(titleMatch[1]);
+          return {
+            title: parsed.title,
+            volume: parsed.volume,
+            category: 'Manga',
+            isVariant: parsed.isVariant,
+            isbn: cleanIsbn,
+            provider: 'SBN OPAC'
+          };
         }
-
-        const numMatch = titleFound.match(/(?:vol(?:ume)?\.?|n\.?|#)\s*(\d+)/i) || titleFound.match(/(\d+)$/);
-        if (numMatch) {
-          volumeFound = numMatch[1];
-          titleFound = titleFound.replace(numMatch[0], '').trim();
-        }
-
-        return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
       }
     }
   } catch (e) {
-    console.warn("SBN OPAC fallito:", e);
+    console.warn('Fallback da SBN a Google Books...');
   }
 
-  // 3. Open Library (Fallback internazionale)
+  // 2. Fallback su Google Books API
   try {
-    const resOl = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
-    if (resOl.ok) {
-      const dataOl = await resOl.json();
-      if (dataOl && dataOl.title) {
-        titleFound = dataOl.title.trim();
-        const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
-        if (numMatch) {
-          titleFound = numMatch[1].trim();
-          volumeFound = numMatch[2].trim();
+    const gUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`;
+    const res = await fetch(gUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.totalItems > 0 && data.items && data.items[0]) {
+        const info = data.items[0].volumeInfo;
+        const parsed = parseMangaTitleAndVolume(info.title);
+        
+        let cat = 'Manga';
+        if (info.categories && info.categories.some(c => /comic|graphic novel/i.test(c))) {
+          cat = 'Comics';
         }
-        return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
+
+        return {
+          title: parsed.title,
+          volume: parsed.volume,
+          category: cat,
+          isVariant: parsed.isVariant,
+          isbn: cleanIsbn,
+          provider: 'Google Books'
+        };
       }
     }
   } catch (e) {
-    console.warn("Open Library fallito:", e);
+    console.warn('Fallback da Google Books a Open Library...');
   }
 
-  return { title: '', volume: '1', category: 'Manga' };
+  // 3. Fallback su Open Library
+  try {
+    const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
+    const res = await fetch(olUrl);
+    if (res.ok) {
+      const data = await res.json();
+      const bookKey = `ISBN:${cleanIsbn}`;
+      if (data[bookKey]) {
+        const parsed = parseMangaTitleAndVolume(data[bookKey].title);
+        return {
+          title: parsed.title,
+          volume: parsed.volume,
+          category: 'Manga',
+          isVariant: parsed.isVariant,
+          isbn: cleanIsbn,
+          provider: 'Open Library'
+        };
+      }
+    }
+  } catch (e) {}
+
+  return {
+    title: '',
+    volume: '1',
+    category: 'Manga',
+    isVariant: false,
+    isbn: cleanIsbn,
+    provider: 'Manuale'
+  };
 }
 
-export function resetCheckerPreview() {
-  const box = document.getElementById('checkerResultBox');
-  const icon = document.getElementById('checkerSignalIcon');
-  const title = document.getElementById('checkerStatusTitle');
-  const desc = document.getElementById('checkerStatusDesc');
-  const btnAcquisti = document.getElementById('checkerAddToAcquistiBtn');
-  const btnPosseduti = document.getElementById('checkerAddToPossedutiBtn');
-
-  if (box) box.className = 'checker-result-box idle';
-  if (icon) icon.textContent = '📷';
-  if (title) title.textContent = 'Inquadra il codice a barre';
-  if (desc) desc.textContent = 'Punta la fotocamera sull\'ISBN per verificare se è già presente in collezione.';
-  if (btnAcquisti) btnAcquisti.style.display = 'none';
-  if (btnPosseduti) btnPosseduti.style.display = 'none';
-  lastDetectedCheckItem = null;
-}
-
-export function openCheckerModal(appData, activeCategory) {
-  resetCheckerPreview();
+// ----------------------------------------------------
+// GESTIONE MODALE VERIFICA & SCANNER RAPIDO
+// ----------------------------------------------------
+export function openCheckerModal(appData, activeCategory, onFastAddCallback) {
   const modal = document.getElementById('checkerModalBackdrop');
-  if (modal) modal.classList.add('active');
+  if (!modal) return;
 
-  if (!checkerScanner) {
-    checkerScanner = new Html5Qrcode('checkerCameraReader');
+  resetCheckerPreview();
+  modal.classList.add('active');
+
+  const readerId = 'checkerCameraReader';
+  if (!html5QrCodeScanner) {
+    html5QrCodeScanner = new Html5Qrcode(readerId);
   }
 
-  checkerScanner.start(
+  isScanThrottled = false;
+  lastDecodedCode = null;
+
+  html5QrCodeScanner.start(
     { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 260, height: 160 } },
+    {
+      fps: 12,
+      qrbox: { width: 260, height: 160 }
+    },
     async (decodedText) => {
-      await processBarcodeVerification(decodedText, appData, activeCategory);
+      if (isScanThrottled || decodedText === lastDecodedCode) return;
+      isScanThrottled = true;
+      lastDecodedCode = decodedText;
+
+      handleBarcodeScanned(decodedText, appData, activeCategory, onFastAddCallback);
+
+      // Throttling di 1.5s per evitare doppie letture involontarie
+      setTimeout(() => {
+        isScanThrottled = false;
+      }, 1500);
     },
     () => {}
-  ).catch(() => {
-    const t = document.getElementById('checkerStatusTitle');
-    const d = document.getElementById('checkerStatusDesc');
-    if (t) t.textContent = 'Fotocamera non disponibile';
-    if (d) d.textContent = 'Verifica i permessi della fotocamera nel browser.';
+  ).catch((err) => {
+    console.warn('Errore fotocamera scanner:', err);
+    const titleElem = document.getElementById('checkerStatusTitle');
+    const descElem = document.getElementById('checkerStatusDesc');
+    if (titleElem) titleElem.textContent = 'Errore Accesso Fotocamera';
+    if (descElem) descElem.textContent = 'Verifica i permessi per l\'uso della fotocamera nel browser.';
   });
 }
 
 export function stopCheckerModal() {
   const modal = document.getElementById('checkerModalBackdrop');
-  if (checkerScanner) {
-    checkerScanner.stop().catch(() => {}).then(() => {
-      if (modal) modal.classList.remove('active');
+  if (modal) modal.classList.remove('active');
+
+  if (html5QrCodeScanner) {
+    html5QrCodeScanner.stop().catch(() => {}).then(() => {
+      html5QrCodeScanner = null;
     });
-  } else {
-    if (modal) modal.classList.remove('active');
   }
 }
 
-export async function processBarcodeVerification(isbn, appData, activeCategory) {
-  if (checkerScanner) {
-    try { await checkerScanner.pause(); } catch(e) {}
+export function resetCheckerPreview() {
+  const resultBox = document.getElementById('checkerResultBox');
+  const signalIcon = document.getElementById('checkerSignalIcon');
+  const titleElem = document.getElementById('checkerStatusTitle');
+  const descElem = document.getElementById('checkerStatusDesc');
+  const fastAddBtn = document.getElementById('checkerFastAddBtn');
+  const editDetailsBtn = document.getElementById('checkerEditDetailsBtn');
+  const detailsPanel = document.getElementById('checkerManualDetailsPanel');
+
+  if (resultBox) {
+    resultBox.className = 'checker-result-box idle';
   }
+  if (signalIcon) signalIcon.textContent = '📷';
+  if (titleElem) titleElem.textContent = 'Inquadra il codice a barre';
+  if (descElem) descElem.textContent = 'Punta la fotocamera sull\'ISBN per verificare o aggiungere istantaneamente.';
+  if (fastAddBtn) fastAddBtn.style.display = 'none';
+  if (editDetailsBtn) editDetailsBtn.style.display = 'none';
+  if (detailsPanel) detailsPanel.style.display = 'none';
 
-  const icon = document.getElementById('checkerSignalIcon');
-  const statusTitle = document.getElementById('checkerStatusTitle');
-  const statusDesc = document.getElementById('checkerStatusDesc');
+  lastDetectedCheckItem = null;
+}
 
-  if (icon) icon.textContent = '⏳';
-  if (statusTitle) statusTitle.textContent = 'Ricerca nel catalogo italiano...';
-  if (statusDesc) statusDesc.textContent = `Codice: ${isbn}`;
+// ----------------------------------------------------
+// ANALISI DEL CODICE SCANSIONATO
+// ----------------------------------------------------
+async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAddCallback) {
+  const resultBox = document.getElementById('checkerResultBox');
+  const signalIcon = document.getElementById('checkerSignalIcon');
+  const titleElem = document.getElementById('checkerStatusTitle');
+  const descElem = document.getElementById('checkerStatusDesc');
+  const fastAddBtn = document.getElementById('checkerFastAddBtn');
+  const editDetailsBtn = document.getElementById('checkerEditDetailsBtn');
 
-  const rawDigits = isbn.replace(/[^0-9X]/gi, '');
-  const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
+  if (signalIcon) signalIcon.textContent = '⏳';
+  if (titleElem) titleElem.textContent = 'Ricerca ISBN in corso...';
+  if (descElem) descElem.textContent = `Codice: ${isbnText}. Interrogo database SBN...`;
 
-  const result = await searchIsbnData(cleanIsbn);
-
-  let cat = result.category;
-  if (activeCategory !== 'Tutte') {
-    cat = activeCategory;
-  }
+  const cleanDigits = isbnText.replace(/[^0-9X]/gi, '');
+  const searchResult = await searchIsbnData(cleanDigits);
 
   lastDetectedCheckItem = {
-    isbn: cleanIsbn,
-    title: result.title || '',
-    number: result.volume || '1',
-    category: cat,
-    isVariant: false
+    isbn: cleanDigits,
+    title: searchResult.title || `Opera ISBN ${cleanDigits}`,
+    number: searchResult.volume || '1',
+    category: searchResult.category || (activeCategory !== 'Tutte' ? activeCategory : 'Generale'),
+    isVariant: searchResult.isVariant
   };
 
-  displayBarcodeEvaluation(appData);
-}
+  // Compila i campi nel pannello manuale opzionale
+  const customTitle = document.getElementById('scannerCustomTitle');
+  const customVol = document.getElementById('scannerCustomVol');
+  const customCat = document.getElementById('scannerCustomCat');
+  const customVariant = document.getElementById('scannerCustomVariant');
 
-export function displayBarcodeEvaluation(appData) {
-  if (!lastDetectedCheckItem) return;
+  if (customTitle) customTitle.value = lastDetectedCheckItem.title;
+  if (customVol) customVol.value = lastDetectedCheckItem.number;
+  if (customCat) customCat.value = lastDetectedCheckItem.category;
+  if (customVariant) customVariant.checked = Boolean(lastDetectedCheckItem.isVariant);
 
-  const { isbn, title, number, category, isVariant } = lastDetectedCheckItem;
-  const box = document.getElementById('checkerResultBox');
-  const icon = document.getElementById('checkerSignalIcon');
-  const statusTitle = document.getElementById('checkerStatusTitle');
-  const statusDesc = document.getElementById('checkerStatusDesc');
-  const btnAcquisti = document.getElementById('checkerAddToAcquistiBtn');
-  const btnPosseduti = document.getElementById('checkerAddToPossedutiBtn');
-
-  const exactOwnedByIsbn = appData.items.find(i => 
+  // Controllo se è già presente in collezione (per ISBN o Titolo + Volume)
+  const ownedMatch = appData.items.find(i => 
     i.set === 'Posseduti' && 
-    i.isbn && 
-    i.isbn === isbn && 
-    Boolean(i.isVariant) === Boolean(isVariant)
+    (
+      (i.isbn && i.isbn === cleanDigits) ||
+      (i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
+    )
   );
 
-  const exactOwnedByTitle = title ? appData.items.find(i => 
-    i.set === 'Posseduti' && 
-    i.title.toLowerCase() === title.toLowerCase() && 
-    String(i.number || '') === String(number) &&
-    Boolean(i.isVariant) === Boolean(isVariant)
-  ) : null;
+  const acquistiMatch = appData.items.find(i => 
+    i.set === 'Acquisti' && 
+    (
+      (i.isbn && i.isbn === cleanDigits) ||
+      (i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
+    )
+  );
 
-  const existingItem = exactOwnedByIsbn || exactOwnedByTitle;
+  if (ownedMatch) {
+    if (resultBox) resultBox.className = 'checker-result-box red-signal';
+    if (signalIcon) signalIcon.textContent = '❌';
+    if (titleElem) titleElem.textContent = `GIÀ POSSEDUTO (Vol. #${ownedMatch.number || '1'})`;
+    if (descElem) descElem.textContent = `"${ownedMatch.title}" fa già parte della tua collezione nei Posseduti.`;
 
-  if (existingItem) {
-    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-    if (box) box.className = 'checker-result-box red-signal';
-    if (icon) icon.textContent = '⛔';
-    if (statusTitle) statusTitle.textContent = isVariant ? 'VARIANT GIÀ IN COLLEZIONE!' : 'GIÀ PRESENTE IN COLLEZIONE!';
-    if (statusDesc) {
-      statusDesc.innerHTML = `
-        Possiedi già "<strong>${escapeHtml(existingItem.title)}</strong>" (Vol. #${escapeHtml(existingItem.number || '1')}) nei tuoi Posseduti!
-        <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">ISBN: ${escapeHtml(isbn)}</div>
-      `;
+    if (fastAddBtn) fastAddBtn.style.display = 'none';
+    if (editDetailsBtn) editDetailsBtn.style.display = 'none';
+  } else if (acquistiMatch) {
+    if (resultBox) resultBox.className = 'checker-result-box green-signal';
+    if (signalIcon) signalIcon.textContent = '📋';
+    if (titleElem) titleElem.textContent = `PRESENTE IN ACQUISTI (Vol. #${acquistiMatch.number || '1'})`;
+    if (descElem) descElem.textContent = `"${acquistiMatch.title}" è nella lista da comprare.`;
+
+    if (fastAddBtn) {
+      fastAddBtn.style.display = 'inline-flex';
+      fastAddBtn.textContent = '✓ Spunta come Comprato';
+      fastAddBtn.onclick = () => {
+        if (onFastAddCallback) onFastAddCallback('BUY_EXISTING', acquistiMatch);
+      };
     }
-    if (btnAcquisti) btnAcquisti.style.display = 'none';
-    if (btnPosseduti) btnPosseduti.style.display = 'none';
+    if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
   } else {
-    if (navigator.vibrate) navigator.vibrate(80);
-    if (box) box.className = 'checker-result-box green-signal';
-    if (icon) icon.textContent = '✅';
-    if (statusTitle) statusTitle.textContent = 'NON PRESENTE: CONFERMA I DATI';
+    // Non posseduto: pronto per l'aggiunta 1-Tap rapida
+    if (resultBox) resultBox.className = 'checker-result-box green-signal';
+    if (signalIcon) signalIcon.textContent = '✨';
+    if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title} #${lastDetectedCheckItem.number}`;
+    if (descElem) descElem.textContent = `Non presente in collezione. Pronto da aggiungere subito!`;
 
-    const categoryOptionsHtml = appData.categories.map(c => {
-      const isSelected = c.toLowerCase() === (category || 'Generale').toLowerCase();
-      return `<option value="${escapeHtml(c)}" ${isSelected ? 'selected' : ''}>${escapeHtml(c)}</option>`;
-    }).join('');
+    const targetSetSelect = document.getElementById('scannerTargetSetPreset');
+    const targetSet = targetSetSelect ? targetSetSelect.value : 'Posseduti';
 
-    if (statusDesc) {
-      statusDesc.innerHTML = `
-        <div class="scanner-preview-card" style="background: rgba(0,0,0,0.35); padding: 10px; border-radius: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
-          <div>
-            <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Titolo Opera:</label>
-            <input type="text" id="scannerCustomTitle" value="${escapeHtml(title)}" placeholder="Inserisci il titolo dell'opera..." style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.9rem; font-weight: 600;">
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <div style="flex: 1;">
-              <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Volume #:</label>
-              <input type="text" id="scannerCustomVol" value="${escapeHtml(number)}" placeholder="es. 1" style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.85rem;">
-            </div>
-            <div style="flex: 1.2;">
-              <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Categoria:</label>
-              <select id="scannerCustomCat" style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.85rem;">
-                ${categoryOptionsHtml}
-              </select>
-            </div>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 2px;">
-            <div style="font-size: 0.75rem; color: var(--accent-cyan); font-weight: 700;">ISBN: ${escapeHtml(isbn)}</div>
-            <label class="checkbox-row">
-              <input type="checkbox" id="scannerVariantCheck" ${isVariant ? 'checked' : ''}>
-              <span class="custom-chk"></span>
-              <span style="font-size: 0.8rem; font-weight: 700;">★ Variant</span>
-            </label>
-          </div>
-        </div>
-      `;
-
-      const variantChk = document.getElementById('scannerVariantCheck');
-      if (variantChk) {
-        variantChk.addEventListener('change', (e) => {
-          lastDetectedCheckItem.isVariant = e.target.checked;
-        });
-      }
+    if (fastAddBtn) {
+      fastAddBtn.style.display = 'inline-flex';
+      fastAddBtn.textContent = `+ Aggiungi a ${targetSet} (1-Tap)`;
+      fastAddBtn.onclick = () => {
+        if (onFastAddCallback) onFastAddCallback('ADD_NEW', lastDetectedCheckItem);
+      };
     }
-
-    if (btnAcquisti) btnAcquisti.style.display = 'inline-flex';
-    if (btnPosseduti) btnPosseduti.style.display = 'inline-flex';
+    if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
   }
 }
