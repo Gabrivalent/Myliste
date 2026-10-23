@@ -1,4 +1,34 @@
 // js/main.js
+import {
+  supabaseClient,
+  currentUser,
+  initAuth,
+  setCloudStatus,
+  syncItemToSupabase,
+  syncBatchItemsToSupabase,
+  deleteItemFromSupabase,
+  syncCategoriesToSupabase,
+  setupRealtimeSubscriptions,
+  formatRowToItem
+} from './supabase.js';
+
+import {
+  openCheckerModal,
+  stopCheckerModal,
+  resetCheckerPreview,
+  searchIsbnData,
+  escapeHtml,
+  lastDetectedCheckItem
+} from './scanner.js';
+
+import {
+  getCategoryColor,
+  getTodayString,
+  getDateStatus,
+  getMonthYearTitle,
+  getScoreBadgeClass,
+  calculateMissingGaps
+} from './ui.js';
 
 // Registrazione PWA Service Worker
 if ('serviceWorker' in navigator) {
@@ -9,46 +39,6 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// ----------------------------------------------------
-// CONFIGURAZIONE INTERNA SUPABASE
-// ----------------------------------------------------
-const SUPABASE_CONFIG = {
-  url: 'https://aiagtwiqeecaxhaaqzmx.supabase.co',
-  anonKey: 'sb_publishable_PodV98vtRyuW329msfQKrA_goxv6C_c'
-};
-
-let supabaseClient = null;
-let realtimeChannel = null;
-let currentUser = null;
-
-// Elementi Auth & Overlay
-const authOverlay = document.getElementById('authOverlay');
-const appContent = document.getElementById('appContent');
-const loginForm = document.getElementById('loginForm');
-const loginEmail = document.getElementById('loginEmail');
-const loginPassword = document.getElementById('loginPassword');
-const loginSubmitBtn = document.getElementById('loginSubmitBtn');
-const authErrorMsg = document.getElementById('authErrorMsg');
-
-const accountUserEmail = document.getElementById('accountUserEmail');
-const currentAccountDisplay = document.getElementById('currentAccountDisplay');
-const logoutBtn = document.getElementById('logoutBtn');
-const cloudStatusDot = document.getElementById('cloudStatusDot');
-
-function setCloudStatus(status) {
-  if (!cloudStatusDot) return;
-  cloudStatusDot.classList.remove('online', 'error');
-  if (status === 'online') {
-    cloudStatusDot.classList.add('online');
-    cloudStatusDot.title = 'Sincronizzazione Cloud Realtime attiva';
-  } else if (status === 'error') {
-    cloudStatusDot.classList.add('error');
-    cloudStatusDot.title = 'Errore di connessione a Supabase';
-  } else {
-    cloudStatusDot.title = 'In attesa di autenticazione';
-  }
-}
-
 function generateUniqueId() {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     const arr = new Uint32Array(1);
@@ -56,342 +46,6 @@ function generateUniqueId() {
     return (arr[0] & 0x7FFFFFFF) % 2000000000;
   }
   return Math.floor(Math.random() * 1900000000) + 1;
-}
-
-// ----------------------------------------------------
-// INIZIALIZZAZIONE & GESTIONE SESSIONE (AUTH)
-// ----------------------------------------------------
-async function initAuthAndApp() {
-  if (!window.supabase) {
-    alert('Libreria Supabase non caricata. Verifica la connessione internet.');
-    return;
-  }
-
-  try {
-    supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
-
-    supabaseClient.auth.onAuthStateChange((event, session) => {
-      if (session && session.user) {
-        handleAuthenticatedState(session.user);
-      } else {
-        handleUnauthenticatedState();
-      }
-    });
-
-    const { data, error } = await supabaseClient.auth.getSession();
-    if (error) throw error;
-
-    if (data && data.session && data.session.user) {
-      handleAuthenticatedState(data.session.user);
-    } else {
-      handleUnauthenticatedState();
-    }
-  } catch (err) {
-    console.error("Errore inizializzazione Supabase Auth:", err);
-    handleUnauthenticatedState();
-  }
-}
-
-function handleAuthenticatedState(user) {
-  currentUser = user;
-  if (authOverlay) authOverlay.style.display = 'none';
-  if (appContent) appContent.style.display = 'flex';
-  if (openModalBtn) openModalBtn.style.display = 'flex';
-
-  if (accountUserEmail) accountUserEmail.textContent = user.email;
-  if (currentAccountDisplay) currentAccountDisplay.textContent = user.email;
-
-  fetchDataFromSupabase();
-  setupRealtimeSubscriptions();
-  checkAndTriggerTodayNotifications();
-}
-
-function handleUnauthenticatedState() {
-  currentUser = null;
-  if (authOverlay) authOverlay.style.display = 'flex';
-  if (appContent) appContent.style.display = 'none';
-  if (openModalBtn) openModalBtn.style.display = 'none';
-  setCloudStatus('offline');
-
-  if (realtimeChannel && supabaseClient) {
-    supabaseClient.removeChannel(realtimeChannel);
-    realtimeChannel = null;
-  }
-}
-
-if (loginForm) {
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = loginEmail.value.trim();
-    const password = loginPassword.value;
-
-    loginSubmitBtn.disabled = true;
-    loginSubmitBtn.textContent = 'Verifica in corso...';
-    if (authErrorMsg) {
-      authErrorMsg.style.display = 'none';
-      authErrorMsg.textContent = '';
-    }
-
-    try {
-      if (!supabaseClient) {
-        supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
-      }
-
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: email,
-        password: password
-      });
-
-      if (error) throw error;
-
-      loginForm.reset();
-      handleAuthenticatedState(data.user);
-    } catch (err) {
-      console.error("Errore durante il login:", err);
-      if (authErrorMsg) {
-        authErrorMsg.textContent = err.message || 'Credenziali non valide o errore di connessione.';
-        authErrorMsg.style.display = 'block';
-      }
-    } finally {
-      loginSubmitBtn.disabled = false;
-      loginSubmitBtn.textContent = 'Accedi';
-    }
-  });
-}
-
-if (logoutBtn) {
-  logoutBtn.addEventListener('click', async () => {
-    if (confirm('Vuoi davvero disconnettere questo account?')) {
-      closeSettingsModal();
-      await supabaseClient.auth.signOut();
-    }
-  });
-}
-
-// ----------------------------------------------------
-// REALTIME & DATI SUPABASE (SALVATAGGIO SICURO SENZA ERRORI 400)
-// ----------------------------------------------------
-function setupRealtimeSubscriptions() {
-  if (!supabaseClient || !currentUser) return;
-
-  if (realtimeChannel) {
-    supabaseClient.removeChannel(realtimeChannel);
-  }
-
-  realtimeChannel = supabaseClient
-    .channel('public:items')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'items' },
-      (payload) => {
-        handleRealtimeEvent(payload);
-      }
-    )
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        setCloudStatus('online');
-      }
-    });
-}
-
-function handleRealtimeEvent(payload) {
-  const { eventType, new: newRow, old: oldRow } = payload;
-
-  if (eventType === 'INSERT') {
-    const exists = appData.items.some(i => i.id === Number(newRow.id));
-    if (!exists) {
-      appData.items.unshift(formatRowToItem(newRow));
-      saveData();
-      renderList();
-    }
-  } else if (eventType === 'UPDATE') {
-    const idx = appData.items.findIndex(i => i.id === Number(newRow.id));
-    if (idx !== -1) {
-      appData.items[idx] = formatRowToItem(newRow);
-      saveData();
-      renderList();
-    }
-  } else if (eventType === 'DELETE') {
-    if (oldRow && oldRow.id) {
-      appData.items = appData.items.filter(i => i.id !== Number(oldRow.id));
-      saveData();
-      renderList();
-    }
-  }
-}
-
-function formatRowToItem(row) {
-  const comment = row.private_comment || '';
-  const isbnMatch = comment.match(/\[ISBN:\s*([0-9X]+)\]/i);
-  const extractedIsbn = isbnMatch ? isbnMatch[1] : null;
-
-  return {
-    id: Number(row.id),
-    title: row.title,
-    set: row.set_type,
-    category: row.category,
-    date: row.date,
-    number: row.number,
-    isbn: extractedIsbn,
-    rating: row.rating,
-    unplayed: Boolean(row.unplayed),
-    purchased: Boolean(row.purchased),
-    completed: Boolean(row.completed),
-    isRead: false,
-    isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
-    missingGapNotice: row.missing_gap_notice,
-    readingChapter: row.reading_chapter || '',
-    privateComment: comment,
-    createdAt: row.created_at || new Date().toISOString()
-  };
-}
-
-async function fetchDataFromSupabase() {
-  if (!supabaseClient || !currentUser) return;
-
-  try {
-    const { data: catData, error: catErr } = await supabaseClient
-      .from('categories')
-      .select('name');
-
-    if (!catErr && catData && catData.length > 0) {
-      appData.categories = catData.map(c => c.name);
-    }
-
-    const { data: itemData, error: itemErr } = await supabaseClient
-      .from('items')
-      .select('*');
-
-    if (itemErr) throw itemErr;
-
-    if (itemData) {
-      appData.items = itemData.map(formatRowToItem);
-    }
-
-    setCloudStatus('online');
-    saveData();
-    updateCategoryDropdown();
-    renderList();
-  } catch (err) {
-    console.error('Errore durante il recupero dei dati da Supabase:', err);
-    setCloudStatus('error');
-  }
-}
-
-async function syncItemToSupabase(item) {
-  if (!supabaseClient || !currentUser) return;
-
-  try {
-    let cleanComment = item.privateComment || '';
-    if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
-      cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
-    }
-
-    const payload = {
-      title: item.title,
-      set_type: item.set,
-      category: item.category || 'Generale',
-      date: item.date || null,
-      number: item.number ? String(item.number) : null,
-      rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
-      unplayed: Boolean(item.unplayed),
-      purchased: Boolean(item.purchased),
-      completed: Boolean(item.completed),
-      missing_gap_notice: item.missingGapNotice || null,
-      reading_chapter: item.readingChapter || null,
-      private_comment: cleanComment
-    };
-
-    const numericId = parseInt(item.id, 10);
-    if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
-      payload.id = numericId;
-    }
-
-    const { data, error } = await supabaseClient
-      .from('items')
-      .upsert(payload)
-      .select();
-
-    if (error) throw error;
-
-    if (data && data[0] && data[0].id) {
-      item.id = Number(data[0].id);
-      saveData();
-    }
-
-    setCloudStatus('online');
-  } catch (err) {
-    console.error(`Errore sync item #${item.id}:`, err);
-    setCloudStatus('error');
-  }
-}
-
-async function syncBatchItemsToSupabase(itemsArray) {
-  if (!supabaseClient || !currentUser || itemsArray.length === 0) return;
-
-  try {
-    const payload = itemsArray.map(item => {
-      let cleanComment = item.privateComment || '';
-      if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
-        cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
-      }
-
-      const obj = {
-        title: item.title,
-        set_type: item.set,
-        category: item.category || 'Generale',
-        date: item.date || null,
-        number: item.number ? String(item.number) : null,
-        rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
-        unplayed: Boolean(item.unplayed),
-        purchased: Boolean(item.purchased),
-        completed: Boolean(item.completed),
-        missing_gap_notice: item.missingGapNotice || null,
-        reading_chapter: item.readingChapter || null,
-        private_comment: cleanComment
-      };
-
-      const numericId = parseInt(item.id, 10);
-      if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
-        obj.id = numericId;
-      }
-      return obj;
-    });
-
-    const { error } = await supabaseClient.from('items').upsert(payload);
-    if (error) throw error;
-    setCloudStatus('online');
-  } catch (err) {
-    console.error('Errore sync batch items:', err);
-    setCloudStatus('error');
-  }
-}
-
-async function deleteItemFromSupabase(id) {
-  if (!supabaseClient || !currentUser) return;
-
-  try {
-    const { error } = await supabaseClient.from('items').delete().eq('id', id);
-    if (error) throw error;
-    setCloudStatus('online');
-  } catch (err) {
-    console.error(`Errore eliminazione item #${id}:`, err);
-    setCloudStatus('error');
-  }
-}
-
-async function syncCategoriesToSupabase() {
-  if (!supabaseClient || !currentUser) return;
-
-  try {
-    const payload = appData.categories.map(c => ({ id: c, name: c }));
-    const { error } = await supabaseClient.from('categories').upsert(payload);
-    if (error) throw error;
-    setCloudStatus('online');
-  } catch (err) {
-    console.error('Errore sync categorie:', err);
-    setCloudStatus('error');
-  }
 }
 
 // ----------------------------------------------------
@@ -445,10 +99,7 @@ let searchSeriesQuery = '';
 let deletedItemBuffer = null;
 let undoTimeoutId = null;
 let currentOverviewItemId = null;
-
-let html5QrCodeScanner = null;
-let checkerScanner = null;
-let lastDetectedCheckItem = null;
+let inlineHtml5Scanner = null;
 
 const historyUndoStack = [];
 const historyRedoStack = [];
@@ -491,7 +142,7 @@ async function executeUndo() {
     } else {
       appData.items.unshift(action.data);
       saveData();
-      await syncItemToSupabase(action.data);
+      await syncItemToSupabase(action.data, saveData);
       showToastNotice(`Ripristinato "${action.data.title}"`);
     }
   } else if (action.type === 'UPDATE') {
@@ -499,7 +150,7 @@ async function executeUndo() {
     if (idx !== -1) {
       appData.items[idx] = { ...action.prev };
       saveData();
-      await syncItemToSupabase(appData.items[idx]);
+      await syncItemToSupabase(appData.items[idx], saveData);
       showToastNotice(`Modifica annullata per "${action.prev.title}"`);
     }
   }
@@ -520,7 +171,7 @@ async function executeRedo() {
     if (Array.isArray(action.data)) {
       await syncBatchItemsToSupabase(items);
     } else {
-      await syncItemToSupabase(items[0]);
+      await syncItemToSupabase(items[0], saveData);
     }
     showToastNotice('Creazione riapplicata');
   } else if (action.type === 'DELETE') {
@@ -536,7 +187,7 @@ async function executeRedo() {
     if (idx !== -1) {
       appData.items[idx] = { ...action.next };
       saveData();
-      await syncItemToSupabase(appData.items[idx]);
+      await syncItemToSupabase(appData.items[idx], saveData);
       showToastNotice(`Modifica ripristinata per "${action.next.title}"`);
     }
   }
@@ -552,26 +203,8 @@ const SORT_LABELS = {
   number: 'Per Valore / #'
 };
 
-const CATEGORY_COLORS = ['#38bdf8', '#c084fc', '#f59e0b', '#34d399', '#f472b6', '#a78bfa', '#fb923c'];
-
-function getCategoryColor(catName) {
-  if (!catName) return '#38bdf8';
-  let hash = 0;
-  for (let i = 0; i < catName.length; i++) {
-    hash = catName.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % CATEGORY_COLORS.length;
-  return CATEGORY_COLORS[index];
-}
-
-// Giroscopio per riflesso foil su smartphone
-if (window.DeviceOrientationEvent) {
-  window.addEventListener('deviceorientation', (event) => {
-    if (event.gamma !== null) {
-      const angle = Math.round(135 + (event.gamma * 1.5));
-      document.documentElement.style.setProperty('--foil-angle', `${angle}deg`);
-    }
-  }, { passive: true });
+function saveData() {
+  localStorage.setItem('collection_data', JSON.stringify(appData));
 }
 
 // ----------------------------------------------------
@@ -608,33 +241,8 @@ async function ensureItemInVoti(title, category) {
     };
     appData.items.unshift(votiItem);
     saveData();
-    await syncItemToSupabase(votiItem);
+    await syncItemToSupabase(votiItem, saveData);
   }
-}
-
-// ----------------------------------------------------
-// CALCOLO BUCHI NUMERICI DI UNA COLLANA
-// ----------------------------------------------------
-function calculateMissingGaps(volumesArray) {
-  const nums = volumesArray
-    .filter(v => !v.isVariant)
-    .map(v => parseInt(v.number, 10))
-    .filter(n => !isNaN(n) && n > 0);
-
-  if (nums.length < 2) return [];
-
-  nums.sort((a, b) => a - b);
-  const min = nums[0];
-  const max = nums[nums.length - 1];
-  const presentSet = new Set(nums);
-  const missing = [];
-
-  for (let i = min; i <= max; i++) {
-    if (!presentSet.has(i)) {
-      missing.push(i);
-    }
-  }
-  return missing;
 }
 
 // Elementi DOM Principali
@@ -726,17 +334,12 @@ const existingTitlesListBatch = document.getElementById('existingTitlesListBatch
 // Modale Verifica Barcode
 const openCheckerScanBtn = document.getElementById('openCheckerScanBtn');
 const openCheckerTopBtn = document.getElementById('openCheckerTopBtn');
-const checkerModalBackdrop = document.getElementById('checkerModalBackdrop');
 const closeCheckerModalBtn = document.getElementById('closeCheckerModalBtn');
-const checkerResultBox = document.getElementById('checkerResultBox');
-const checkerSignalIcon = document.getElementById('checkerSignalIcon');
-const checkerStatusTitle = document.getElementById('checkerStatusTitle');
-const checkerStatusDesc = document.getElementById('checkerStatusDesc');
 const checkerResetBtn = document.getElementById('checkerResetBtn');
 const checkerAddToAcquistiBtn = document.getElementById('checkerAddToAcquistiBtn');
 const checkerAddToPossedutiBtn = document.getElementById('checkerAddToPossedutiBtn');
 
-// Scanner ISBN nel Form
+// Scanner ISBN nel Form Singolo
 const startScanBtn = document.getElementById('startScanBtn');
 const scannerContainer = document.getElementById('scannerContainer');
 const closeScannerBtn = document.getElementById('closeScannerBtn');
@@ -802,58 +405,6 @@ const importJsonFileInput = document.getElementById('importJsonFileInput');
 const cancelResetBtn = document.getElementById('cancelResetBtn');
 const confirmFactoryResetBtn = document.getElementById('confirmFactoryResetBtn');
 
-function saveData() {
-  localStorage.setItem('collection_data', JSON.stringify(appData));
-}
-
-function getTodayString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function getDateStatus(dateStr) {
-  if (!dateStr) return { colorClass: 'status-orange', label: '', isToday: false, badgeType: 'standard', badgeText: '' };
-
-  const todayStr = getTodayString();
-  const [ty, tm, td] = todayStr.split('-').map(Number);
-  const todayDate = new Date(ty, tm - 1, td);
-
-  const [iy, im, id] = dateStr.split('-').map(Number);
-  const itemDate = new Date(iy, im - 1, id);
-
-  const diffTime = itemDate - todayDate;
-  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) {
-    return { colorClass: 'status-today', label: id, isToday: true, badgeType: 'today', badgeText: 'OGGI' };
-  } else if (diffDays === -1) {
-    return { colorClass: 'status-green', label: id, isToday: false, badgeType: 'yesterday', badgeText: 'IERI' };
-  } else if (diffDays > 0 && diffDays <= 7) {
-    return { colorClass: 'status-red', label: id, isToday: false, badgeType: 'countdown', badgeText: `-${diffDays} gg` };
-  } else if (diffDays < 0) {
-    return { colorClass: 'status-green', label: id, isToday: false, badgeType: 'standard', badgeText: formatDisplayDate(dateStr) };
-  } else {
-    return { colorClass: 'status-red', label: id, isToday: false, badgeType: 'standard', badgeText: formatDisplayDate(dateStr) };
-  }
-}
-
-function formatDisplayDate(dateStr) {
-  if (!dateStr) return '';
-  const [y, m, d] = dateStr.split('-');
-  const date = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
-  return date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
-}
-
-function getMonthYearTitle(dateStr) {
-  const [y, m] = dateStr.split('-');
-  const date = new Date(parseInt(y), parseInt(m) - 1, 1);
-  const monthName = date.toLocaleDateString('it-IT', { month: 'long' });
-  return monthName.charAt(0).toUpperCase() + monthName.slice(1);
-}
-
 function updateCategoryDropdown() {
   const previous = activeCategory;
   categoryFilter.innerHTML = '<option value="Tutte">Tutte le Categorie</option>';
@@ -904,7 +455,6 @@ setTabs.addEventListener('click', (e) => {
   localStorage.setItem('pref_set', activeSet);
 
   sortIndicatorText.textContent = SORT_LABELS[getCurrentSortMode()] || 'Per Data';
-
   updateFilterBarChips();
   renderList();
 });
@@ -1072,7 +622,6 @@ function renderList() {
 
 function renderPurchasesLayout(items) {
   const timeFiltered = items.filter(matchesActiveFilter);
-
   const activeItems = timeFiltered.filter(i => !i.purchased);
   const purchasedItems = timeFiltered.filter(i => i.purchased);
 
@@ -1114,7 +663,6 @@ function renderPurchasesLayout(items) {
 
   const noDateItems = activeItems.filter(i => !i.date);
   const withDateItems = activeItems.filter(i => i.date);
-
   withDateItems.sort((a, b) => a.date.localeCompare(b.date));
 
   noDateItems.forEach(item => {
@@ -1131,7 +679,6 @@ function renderPurchasesLayout(items) {
   Object.keys(monthGroups).sort().forEach(groupKey => {
     const header = document.createElement('div');
     header.className = 'month-group-header';
-
     const count = monthGroups[groupKey].length;
     const countLabel = count === 1 ? '1 volume' : `${count} volumi`;
 
@@ -1147,9 +694,6 @@ function renderPurchasesLayout(items) {
   });
 }
 
-// ----------------------------------------------------
-// ACCORPAMENTO PER OPERA NEI POSSEDUTI
-// ----------------------------------------------------
 function renderPossedutiAggregatedLayout(items) {
   purchasedSection.style.display = 'none';
   const filtered = items.filter(matchesActiveFilter);
@@ -1436,6 +980,7 @@ function syncPurchasedWithPosseduti(purchasedItem) {
     category: itemCategory,
     date: null,
     number: purchasedItem.number || '1',
+    isbn: purchasedItem.isbn || null,
     rating: null,
     unplayed: false,
     purchased: false,
@@ -1450,7 +995,7 @@ function syncPurchasedWithPosseduti(purchasedItem) {
   };
 
   appData.items.unshift(newItem);
-  syncItemToSupabase(newItem);
+  syncItemToSupabase(newItem, saveData);
 
   if (!newItem.isVariant) {
     ensureItemInVoti(newItem.title, newItem.category);
@@ -1507,7 +1052,7 @@ async function updateChapterStep(itemId, delta) {
   }
 
   saveData();
-  await syncItemToSupabase(item);
+  await syncItemToSupabase(item, saveData);
 }
 
 async function setManualChapter(itemId) {
@@ -1545,7 +1090,7 @@ async function setManualChapter(itemId) {
   }
 
   saveData();
-  await syncItemToSupabase(item);
+  await syncItemToSupabase(item, saveData);
   showToastNotice(`Capitolo di "${item.title}" impostato a ${parsed}`);
 }
 
@@ -1561,7 +1106,7 @@ async function updateVolumeStep(itemId, delta) {
   pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
 
   saveData();
-  await syncItemToSupabase(item);
+  await syncItemToSupabase(item, saveData);
   renderList();
   showToastNotice(`"${item.title}" aggiornato al Vol. #${nextNum}`);
 }
@@ -1575,7 +1120,7 @@ async function toggleReadStatus(itemId) {
   pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
 
   saveData();
-  await syncItemToSupabase(item);
+  await syncItemToSupabase(item, saveData);
   renderList();
   showToastNotice(item.isRead ? `Segnato come LETTO` : `Segnato come NON LETTO`);
 }
@@ -1648,14 +1193,6 @@ function showToastNotice(message) {
     undoToast.classList.remove('show');
     undoBtn.style.display = 'inline-block';
   }, 4500);
-}
-
-function getScoreBadgeClass(rating) {
-  if (rating >= 95) return 'score-top';
-  if (rating >= 85) return 'score-high';
-  if (rating >= 75) return 'score-good';
-  if (rating >= 60) return 'score-mid';
-  return 'score-low';
 }
 
 function createItemCard(item, isCompact, medalIcon = null) {
@@ -1788,7 +1325,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
       pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
 
       saveData();
-      syncItemToSupabase(item);
+      syncItemToSupabase(item, saveData);
 
       if (item.purchased) {
         syncPurchasedWithPosseduti(item);
@@ -1904,7 +1441,7 @@ function openMangaShelf3D(seriesTitle, category) {
           appData.items.unshift(newItem);
           pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
           saveData();
-          syncItemToSupabase(newItem);
+          syncItemToSupabase(newItem, saveData);
           closeShelfModal();
           renderList();
           showToastNotice(`"${seriesTitle} #${v}" aggiunto ad Acquisti!`);
@@ -1959,260 +1496,11 @@ if (shelfModalBackdrop) {
   });
 }
 
-// ----------------------------------------------------
-// RICERCA ISBN CON CATALOGO SBN / OPAC ITALIANO + GOOGLE + OPEN LIBRARY
-// ----------------------------------------------------
-async function searchIsbnData(isbn) {
-  const rawDigits = isbn.replace(/[^0-9X]/gi, '');
-  const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
-
-  let titleFound = '';
-  let volumeFound = '1';
-  let categoryFound = 'Manga';
-
-  // 1. Google Books API
-  try {
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-    const data = await res.json();
-    if (data.items && data.items.length > 0) {
-      const info = data.items[0].volumeInfo;
-      titleFound = info.title || '';
-      const numMatch = (info.title + ' ' + (info.subtitle || '')).match(/(?:vol(?:ume)?\.?|n\.?|#)\s*(\d+)/i) || titleFound.match(/^(.*?)\s+#?(\d+)$/);
-      if (numMatch) {
-        volumeFound = numMatch[1] && !isNaN(numMatch[1]) ? numMatch[1] : (numMatch[2] || '1');
-      }
-      return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
-    }
-  } catch (e) {
-    console.warn("Google Books non riuscito:", e);
-  }
-
-  // 2. Catalogo SBN / OPAC Italiano (ICCU)
-  try {
-    const sbnUrl = `https://opac.sbn.it/opacmobile/ricercaAvanzata?isbn=${cleanIsbn}&formato=json`;
-    const resSbn = await fetch(sbnUrl);
-    if (resSbn.ok) {
-      const sbnData = await resSbn.json();
-      if (sbnData && sbnData.risultati && sbnData.risultati.length > 0) {
-        const item = sbnData.risultati[0];
-        titleFound = item.titolo || item.titoloUniforme || '';
-
-        if (titleFound.includes('/')) {
-          titleFound = titleFound.split('/')[0].trim();
-        }
-
-        const numMatch = titleFound.match(/(?:vol(?:ume)?\.?|n\.?|#)\s*(\d+)/i) || titleFound.match(/(\d+)$/);
-        if (numMatch) {
-          volumeFound = numMatch[1];
-          titleFound = titleFound.replace(numMatch[0], '').trim();
-        }
-
-        return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
-      }
-    }
-  } catch (e) {
-    console.warn("SBN OPAC non riuscito:", e);
-  }
-
-  // 3. Open Library (fallback internazionale)
-  try {
-    const resOl = await fetch(`https://openlibrary.org/isbn/${cleanIsbn}.json`);
-    if (resOl.ok) {
-      const dataOl = await resOl.json();
-      if (dataOl && dataOl.title) {
-        titleFound = dataOl.title.trim();
-        const numMatch = titleFound.match(/^(.*?)\s+#?(\d+)$/);
-        if (numMatch) {
-          titleFound = numMatch[1].trim();
-          volumeFound = numMatch[2].trim();
-        }
-        return { title: titleFound, volume: volumeFound, category: detectCategory(titleFound) };
-      }
-    }
-  } catch (e) {
-    console.warn("Open Library non riuscito:", e);
-  }
-
-  return { title: '', volume: '1', category: 'Manga' };
-}
-
-function detectCategory(title) {
-  const t = title.toLowerCase();
-  if (/batman|superman|spider-man|x-men|marvel|dc|comic|deadpool|avengers/i.test(t)) {
-    return 'Comics';
-  }
-  return 'Manga';
-}
-
-// ----------------------------------------------------
-// SCANNER BARCODE CON MODIFICA TITOLO, VOLUME E CATEGORIA
-// ----------------------------------------------------
-function openCheckerModal() {
-  resetCheckerPreview();
-  checkerModalBackdrop.classList.add('active');
-
-  if (!checkerScanner) {
-    checkerScanner = new Html5Qrcode('checkerCameraReader');
-  }
-
-  checkerScanner.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 260, height: 160 } },
-    async (decodedText) => {
-      await processBarcodeVerification(decodedText);
-    },
-    () => {}
-  ).catch(() => {
-    checkerStatusTitle.textContent = 'Fotocamera non disponibile';
-    checkerStatusDesc.textContent = 'Verifica i permessi della fotocamera nel browser.';
-  });
-}
-
-function resetCheckerPreview() {
-  checkerResultBox.className = 'checker-result-box idle';
-  checkerSignalIcon.textContent = '📷';
-  checkerStatusTitle.textContent = 'Inquadra il codice a barre';
-  checkerStatusDesc.textContent = 'Punta la fotocamera sull\'ISBN per verificare se è già presente in collezione.';
-  checkerAddToAcquistiBtn.style.display = 'none';
-  checkerAddToPossedutiBtn.style.display = 'none';
-  lastDetectedCheckItem = null;
-}
-
-function stopCheckerModal() {
-  if (checkerScanner) {
-    checkerScanner.stop().catch(() => {}).then(() => {
-      checkerModalBackdrop.classList.remove('active');
-    });
-  } else {
-    checkerModalBackdrop.classList.remove('active');
-  }
-}
-
-async function processBarcodeVerification(isbn) {
-  if (checkerScanner) {
-    try { await checkerScanner.pause(); } catch(e) {}
-  }
-
-  checkerSignalIcon.textContent = '⏳';
-  checkerStatusTitle.textContent = 'Ricerca nel catalogo italiano...';
-  checkerStatusDesc.textContent = `Codice: ${isbn}`;
-
-  const rawDigits = isbn.replace(/[^0-9X]/gi, '');
-  const cleanIsbn = rawDigits.length > 13 ? rawDigits.slice(0, 13) : rawDigits;
-
-  const result = await searchIsbnData(cleanIsbn);
-
-  let initialCategory = result.category;
-  if (activeCategory !== 'Tutte') {
-    initialCategory = activeCategory;
-  }
-
-  lastDetectedCheckItem = {
-    isbn: cleanIsbn,
-    title: result.title || '',
-    number: result.volume || '1',
-    category: initialCategory,
-    isVariant: false
-  };
-
-  displayBarcodeEvaluation();
-}
-
-function displayBarcodeEvaluation() {
-  if (!lastDetectedCheckItem) return;
-
-  const { isbn, title, number, category, isVariant } = lastDetectedCheckItem;
-
-  const exactOwnedByIsbn = appData.items.find(i => 
-    i.set === 'Posseduti' && 
-    i.isbn && 
-    i.isbn === isbn && 
-    Boolean(i.isVariant) === Boolean(isVariant)
-  );
-
-  const exactOwnedByTitle = title ? appData.items.find(i => 
-    i.set === 'Posseduti' && 
-    i.title.toLowerCase() === title.toLowerCase() && 
-    String(i.number || '') === String(number) &&
-    Boolean(i.isVariant) === Boolean(isVariant)
-  ) : null;
-
-  const existingItem = exactOwnedByIsbn || exactOwnedByTitle;
-
-  if (existingItem) {
-    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-    checkerResultBox.className = 'checker-result-box red-signal';
-    checkerSignalIcon.textContent = '⛔';
-    checkerStatusTitle.textContent = isVariant ? 'VARIANT GIÀ IN COLLEZIONE!' : 'GIÀ PRESENTE IN COLLEZIONE!';
-    checkerStatusDesc.innerHTML = `
-      Possiedi già "<strong>${escapeHtml(existingItem.title)}</strong>" (Vol. #${escapeHtml(existingItem.number || '1')}) nei tuoi Posseduti!
-      <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">ISBN: ${escapeHtml(isbn)}</div>
-    `;
-    checkerAddToAcquistiBtn.style.display = 'none';
-    checkerAddToPossedutiBtn.style.display = 'none';
-  } else {
-    if (navigator.vibrate) navigator.vibrate(80);
-    checkerResultBox.className = 'checker-result-box green-signal';
-    checkerSignalIcon.textContent = '✅';
-    checkerStatusTitle.textContent = 'NON PRESENTE: CONFERMA I DATI';
-
-    const categoryOptionsHtml = appData.categories.map(cat => {
-      const isSelected = cat.toLowerCase() === (category || 'Generale').toLowerCase();
-      return `<option value="${escapeHtml(cat)}" ${isSelected ? 'selected' : ''}>${escapeHtml(cat)}</option>`;
-    }).join('');
-
-    checkerStatusDesc.innerHTML = `
-      <div class="scanner-preview-card" style="background: rgba(0,0,0,0.35); padding: 10px; border-radius: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
-        <div>
-          <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Titolo Opera:</label>
-          <input type="text" id="scannerCustomTitle" value="${escapeHtml(title)}" placeholder="Inserisci il titolo dell'opera..." style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.9rem; font-weight: 600;">
-        </div>
-
-        <div style="display: flex; gap: 8px;">
-          <div style="flex: 1;">
-            <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Volume #:</label>
-            <input type="text" id="scannerCustomVol" value="${escapeHtml(number)}" placeholder="es. 1" style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.85rem;">
-          </div>
-          <div style="flex: 1.2;">
-            <label style="font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700;">Categoria:</label>
-            <select id="scannerCustomCat" style="width: 100%; margin-top: 2px; padding: 6px 8px; font-size: 0.85rem;">
-              ${categoryOptionsHtml}
-            </select>
-          </div>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 2px;">
-          <div style="font-size: 0.75rem; color: var(--accent-cyan); font-weight: 700;">ISBN: ${escapeHtml(isbn)}</div>
-          <label class="checkbox-row">
-            <input type="checkbox" id="scannerVariantCheck" ${isVariant ? 'checked' : ''}>
-            <span class="custom-chk"></span>
-            <span style="font-size: 0.8rem; font-weight: 700;">★ Variant</span>
-          </label>
-        </div>
-      </div>
-    `;
-
-    document.getElementById('scannerVariantCheck').addEventListener('change', (e) => {
-      lastDetectedCheckItem.isVariant = e.target.checked;
-    });
-
-    checkerAddToAcquistiBtn.style.display = 'inline-flex';
-    checkerAddToPossedutiBtn.style.display = 'inline-flex';
-  }
-}
-
-if (openCheckerScanBtn) openCheckerScanBtn.addEventListener('click', openCheckerModal);
-if (openCheckerTopBtn) openCheckerTopBtn.addEventListener('click', openCheckerModal);
+// Eventi Verifica Barcode (Scanner)
+if (openCheckerScanBtn) openCheckerScanBtn.addEventListener('click', () => openCheckerModal(appData, activeCategory));
+if (openCheckerTopBtn) openCheckerTopBtn.addEventListener('click', () => openCheckerModal(appData, activeCategory));
 if (closeCheckerModalBtn) closeCheckerModalBtn.addEventListener('click', stopCheckerModal);
-
-if (checkerResetBtn) {
-  checkerResetBtn.addEventListener('click', () => {
-    resetCheckerPreview();
-    if (checkerScanner) {
-      try { checkerScanner.resume(); } catch(e) {}
-    }
-  });
-}
+if (checkerResetBtn) checkerResetBtn.addEventListener('click', resetCheckerPreview);
 
 if (checkerAddToAcquistiBtn) {
   checkerAddToAcquistiBtn.addEventListener('click', () => {
@@ -2250,7 +1538,7 @@ if (checkerAddToAcquistiBtn) {
     appData.items.unshift(newItem);
     pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
     saveData();
-    syncItemToSupabase(newItem);
+    syncItemToSupabase(newItem, saveData);
     renderList();
     stopCheckerModal();
     showToastNotice(`"${newItem.title} #${newItem.number}" aggiunto agli Acquisti!`);
@@ -2293,7 +1581,7 @@ if (checkerAddToPossedutiBtn) {
     appData.items.unshift(newItem);
     pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
     saveData();
-    syncItemToSupabase(newItem);
+    syncItemToSupabase(newItem, saveData);
 
     if (!isVar) {
       ensureItemInVoti(newItem.title, newItem.category);
@@ -2305,6 +1593,7 @@ if (checkerAddToPossedutiBtn) {
   });
 }
 
+const checkerModalBackdrop = document.getElementById('checkerModalBackdrop');
 if (checkerModalBackdrop) {
   checkerModalBackdrop.addEventListener('click', (e) => {
     if (e.target === checkerModalBackdrop) stopCheckerModal();
@@ -2543,23 +1832,23 @@ if (batchItemForm) {
 }
 
 // ----------------------------------------------------
-// SCANNER ISBN NEL FORM CON LOOKUP SBN/GOOGLE
+// SCANNER ISBN INLINE NEL FORM SINGOLO
 // ----------------------------------------------------
 if (startScanBtn) {
   startScanBtn.addEventListener('click', () => {
     scannerContainer.style.display = 'block';
     scannerStatus.textContent = 'Avvio fotocamera in corso...';
 
-    if (!html5QrCodeScanner) {
-      html5QrCodeScanner = new Html5Qrcode('scannerReader');
+    if (!inlineHtml5Scanner) {
+      inlineHtml5Scanner = new Html5Qrcode('scannerReader');
     }
 
-    html5QrCodeScanner.start(
+    inlineHtml5Scanner.start(
       { facingMode: 'environment' },
       { fps: 10, qrbox: { width: 250, height: 150 } },
       async (decodedText) => {
         scannerStatus.textContent = `Trovato: ${decodedText}. Ricerca dati...`;
-        stopScanner();
+        stopInlineScanner();
         await fetchBookDataByISBN(decodedText);
       },
       () => {}
@@ -2569,9 +1858,9 @@ if (startScanBtn) {
   });
 }
 
-function stopScanner() {
-  if (html5QrCodeScanner) {
-    html5QrCodeScanner.stop().catch(() => {}).then(() => {
+function stopInlineScanner() {
+  if (inlineHtml5Scanner) {
+    inlineHtml5Scanner.stop().catch(() => {}).then(() => {
       if (scannerContainer) scannerContainer.style.display = 'none';
     });
   } else {
@@ -2579,7 +1868,7 @@ function stopScanner() {
   }
 }
 
-if (closeScannerBtn) closeScannerBtn.addEventListener('click', stopScanner);
+if (closeScannerBtn) closeScannerBtn.addEventListener('click', stopInlineScanner);
 
 async function fetchBookDataByISBN(isbn) {
   try {
@@ -2734,7 +2023,7 @@ if (saveOverviewDetailsBtn) {
       pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
 
       saveData();
-      syncItemToSupabase(item);
+      syncItemToSupabase(item, saveData);
       closeOverviewModal();
       renderList();
       showToastNotice(`Panoramica di "${item.title}" salvata!`);
@@ -2777,7 +2066,7 @@ if (undoBtn) {
     if (deletedItemBuffer) {
       appData.items.unshift(deletedItemBuffer);
       saveData();
-      syncItemToSupabase(deletedItemBuffer);
+      syncItemToSupabase(deletedItemBuffer, saveData);
       renderList();
       deletedItemBuffer = null;
       undoToast.classList.remove('show');
@@ -2812,14 +2101,8 @@ function createNextVolume(item) {
   appData.items.unshift(newItem);
   pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
   saveData();
-  syncItemToSupabase(newItem);
+  syncItemToSupabase(newItem, saveData);
   renderList();
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 function populateFormCategories() {
@@ -2886,7 +2169,7 @@ function openCreateModalWithTitle(initialTitle) {
   modalTitle.textContent = 'Nuovo Elemento';
   editItemId.value = '';
   itemForm.reset();
-  stopScanner();
+  stopInlineScanner();
   itemScoreInput.disabled = false;
   itemScoreInput.placeholder = 'es. 85';
   if (itemVariantCheckbox) itemVariantCheckbox.checked = false;
@@ -2911,7 +2194,7 @@ function openCreateModalWithTitle(initialTitle) {
 function openEditModal(item) {
   modalTitle.textContent = 'Modifica Elemento';
   editItemId.value = item.id;
-  stopScanner();
+  stopInlineScanner();
   populateFormCategories();
   updateAutoCompletionList();
 
@@ -2944,7 +2227,7 @@ function openEditModal(item) {
 }
 
 function closeModal() {
-  stopScanner();
+  stopInlineScanner();
   modalBackdrop.classList.remove('active');
   itemForm.reset();
   editItemId.value = '';
@@ -3011,7 +2294,7 @@ itemForm.addEventListener('submit', (e) => {
     category = typedCat;
     if (!appData.categories.includes(category)) {
       appData.categories.push(category);
-      syncCategoriesToSupabase();
+      syncCategoriesToSupabase(appData.categories);
     }
   }
 
@@ -3081,7 +2364,7 @@ itemForm.addEventListener('submit', (e) => {
   }
 
   saveData();
-  if (finalItem) syncItemToSupabase(finalItem);
+  if (finalItem) syncItemToSupabase(finalItem, saveData);
   closeModal();
   updateCategoryDropdown();
 
@@ -3247,13 +2530,13 @@ function renderManageCategoriesList() {
         appData.items.forEach(i => {
           if (i.category === cat) {
             i.category = cleanName;
-            syncItemToSupabase(i);
+            syncItemToSupabase(i, saveData);
           }
         });
         if (activeCategory === cat) activeCategory = cleanName;
 
         saveData();
-        syncCategoriesToSupabase();
+        syncCategoriesToSupabase(appData.categories);
         updateCategoryDropdown();
         renderManageCategoriesList();
         renderList();
@@ -3268,13 +2551,13 @@ function renderManageCategoriesList() {
           appData.items.forEach(i => {
             if (i.category === cat) {
               i.category = 'Generale';
-              syncItemToSupabase(i);
+              syncItemToSupabase(i, saveData);
             }
           });
           if (activeCategory === cat) activeCategory = 'Generale';
 
           saveData();
-          syncCategoriesToSupabase();
+          syncCategoriesToSupabase(appData.categories);
           updateCategoryDropdown();
           renderManageCategoriesList();
           renderList();
@@ -3298,7 +2581,7 @@ addCatManageBtn.addEventListener('click', () => {
   appData.categories.push(newName);
   newCatManageInput.value = '';
   saveData();
-  syncCategoriesToSupabase();
+  syncCategoriesToSupabase(appData.categories);
   updateCategoryDropdown();
   renderManageCategoriesList();
   renderList();
@@ -3393,7 +2676,7 @@ importJsonFileInput.addEventListener('change', (e) => {
             appData.categories.push(cat);
           }
         });
-        syncCategoriesToSupabase();
+        syncCategoriesToSupabase(appData.categories);
       }
 
       let importedCount = 0;
@@ -3470,7 +2753,7 @@ importJsonFileInput.addEventListener('change', (e) => {
 
         appData.items.unshift(newItem);
         newlyImported.push(newItem);
-        await syncItemToSupabase(newItem);
+        await syncItemToSupabase(newItem, saveData);
 
         if (target === 'Posseduti' && !incomingIsVariant) {
           ensureItemInVoti(newItem.title, newItem.category);
@@ -3534,6 +2817,113 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
   alert('Dati ripristinati allo stato iniziale sia in locale che su Supabase.');
 });
 
+// ----------------------------------------------------
+// AVVIO APPLICAZIONE & COLLEGAMENTO EVENTI
+// ----------------------------------------------------
+const authOverlay = document.getElementById('authOverlay');
+const appContent = document.getElementById('appContent');
+const accountUserEmail = document.getElementById('accountUserEmail');
+const currentAccountDisplay = document.getElementById('currentAccountDisplay');
+const loginForm = document.getElementById('loginForm');
+const loginEmail = document.getElementById('loginEmail');
+const loginPassword = document.getElementById('loginPassword');
+const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+const authErrorMsg = document.getElementById('authErrorMsg');
+const logoutBtn = document.getElementById('logoutBtn');
+
+async function fetchDataFromSupabase() {
+  if (!supabaseClient || !currentUser) return;
+
+  try {
+    const { data: catData, error: catErr } = await supabaseClient
+      .from('categories')
+      .select('name');
+
+    if (!catErr && catData && catData.length > 0) {
+      appData.categories = catData.map(c => c.name);
+    }
+
+    const { data: itemData, error: itemErr } = await supabaseClient
+      .from('items')
+      .select('*');
+
+    if (itemErr) throw itemErr;
+
+    if (itemData) {
+      appData.items = itemData.map(formatRowToItem);
+    }
+
+    setCloudStatus('online');
+    saveData();
+    updateCategoryDropdown();
+    renderList();
+  } catch (err) {
+    console.error('Errore recupero dati Supabase:', err);
+    setCloudStatus('error');
+  }
+}
+
+function handleAuthSuccess(user) {
+  if (authOverlay) authOverlay.style.display = 'none';
+  if (appContent) appContent.style.display = 'flex';
+  if (openModalBtn) openModalBtn.style.display = 'flex';
+
+  if (accountUserEmail) accountUserEmail.textContent = user.email;
+  if (currentAccountDisplay) currentAccountDisplay.textContent = user.email;
+
+  fetchDataFromSupabase();
+  setupRealtimeSubscriptions(appData, {
+    onDataChange: () => {
+      saveData();
+      renderList();
+    }
+  });
+  checkAndTriggerTodayNotifications();
+}
+
+function handleAuthLogout() {
+  if (authOverlay) authOverlay.style.display = 'flex';
+  if (appContent) appContent.style.display = 'none';
+  if (openModalBtn) openModalBtn.style.display = 'none';
+  setCloudStatus('offline');
+}
+
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginSubmitBtn.disabled = true;
+    loginSubmitBtn.textContent = 'Verifica in corso...';
+    if (authErrorMsg) authErrorMsg.style.display = 'none';
+
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: loginEmail.value.trim(),
+        password: loginPassword.value
+      });
+      if (error) throw error;
+      loginForm.reset();
+      handleAuthSuccess(data.user);
+    } catch (err) {
+      if (authErrorMsg) {
+        authErrorMsg.textContent = err.message || 'Credenziali non valide.';
+        authErrorMsg.style.display = 'block';
+      }
+    } finally {
+      loginSubmitBtn.disabled = false;
+      loginSubmitBtn.textContent = 'Accedi';
+    }
+  });
+}
+
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', async () => {
+    if (confirm('Vuoi davvero disconnettere questo account?')) {
+      closeSettingsModal();
+      await supabaseClient.auth.signOut();
+    }
+  });
+}
+
 function initApp() {
   document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
     const isSelected = b.dataset.set === activeSet;
@@ -3555,6 +2945,8 @@ function initApp() {
   renderList();
 }
 
-// Avvio applicazione e autenticazione
 initApp();
-initAuthAndApp();
+initAuth({
+  onAuthSuccess: handleAuthSuccess,
+  onAuthLogout: handleAuthLogout
+});
