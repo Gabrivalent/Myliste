@@ -53,7 +53,7 @@
     </div>
   </div>
 
-  <!-- LAYOUT A SCHERMO INTERO STILE TWITCH -->
+  <!-- LAYOUT PRINCIPALE -->
   <div class="site-layout" id="appContent" style="display: none;">
     
     <!-- SIDEBAR FISSA A SINISTRA -->
@@ -120,15 +120,6 @@
           <span class="nav-label">Verifica Barcode</span>
         </button>
 
-        <button class="nav-item-btn" id="openBatchModalBtn" type="button" title="Aggiungi Blocco Volumi">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zm-7-2h2v-3h3v-2h-3V6h-2v3H9v2h3v3z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Blocco Volumi</span>
-        </button>
-
         <button class="nav-item-btn" id="openStatsBtn" type="button" title="Statistiche">
           <div class="nav-icon">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -151,74 +142,60 @@
 
     <!-- AREA CENTRALE DEI CONTENUTI -->
     <main class="main-content-area">
-      <div class="filter-bar">
-        <div class="filter-dropdown-pill">
-          <select id="categoryFilter" aria-label="Filtra per categoria"></select>
-        </div>
-        
-        <div class="filter-bar-right">
-          <!-- PULSANTI UNDO / REDO -->
-          <div class="history-controls">
-            <button class="sort-tag-btn icon-history-btn" id="historyUndoBtn" title="Annulla ultima azione (Ctrl+Z)" type="button" disabled aria-label="Annulla">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
-              </svg>
-            </button>
-            <button class="sort-tag-btn icon-history-btn" id="historyRedoBtn" title="Ripristina azione (Ctrl+Y)" type="button" disabled aria-label="Ripristina">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
-              </svg>
-            </button>
-          </div>
-
-          <!-- TENDINA STORICO RECENTI -->
-          <div class="history-dropdown-wrapper">
-            <button class="sort-tag-btn" id="historyDropdownBtn" title="Mostra storico aggiunte recenti" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
-              </svg>
-              <span>Storico</span>
-            </button>
-            <div class="history-dropdown-menu" id="historyDropdownMenu"></div>
-          </div>
-
-          <button class="sort-tag-btn checker-quick-btn" id="openCheckerTopBtn" title="Scansiona per controllare se ce l'hai già" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
-            </svg>
-            <span>Verifica Barcode</span>
-          </button>
-
-          <button class="sort-tag-btn" id="openBatchTopBtn" title="Aggiungi serie a blocchi (es. 1-10)" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/>
-            </svg>
-            <span>Blocco Volumi</span>
-          </button>
-
-          <button class="sort-tag-btn" id="toggleSortBtn" title="Cambia ordinamento per questo insieme" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/>
-            </svg>
-            <span id="sortIndicatorText">Per Data</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Barra di ricerca -->
-      <div class="search-bar-wrap" id="searchBarWrap">
+      <!-- TOP BAR ESSENZIALE & MINIMALE -->
+      <div class="top-app-bar">
         <div class="search-input-box">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
             <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
           </svg>
           <input type="text" id="seriesSearchInput" placeholder="Cerca opera o titolo (Premi '/' per cercare)..." aria-label="Cerca nella collezione">
-          <button type="button" class="clear-search-btn" id="clearSearchBtn" title="Cancella ricerca" aria-label="Cancella ricerca" style="display: none;">&times;</button>
+          <button type="button" class="clear-search-btn" id="clearSearchBtn" title="Cancella ricerca" style="display: none;">&times;</button>
+        </div>
+
+        <div class="top-bar-actions">
+          <div class="filter-dropdown-pill">
+            <select id="categoryFilter" aria-label="Filtra per categoria"></select>
+          </div>
+
+          <button class="action-pill-btn accent-scan" id="openCheckerTopBtn" title="Scansiona codice a barre" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
+            </svg>
+            <span class="btn-text-desktop">Scanner</span>
+          </button>
+
+          <!-- Menu compatto opzioni secondarie -->
+          <div class="more-menu-wrapper">
+            <button class="action-pill-btn icon-only" id="moreActionsBtn" title="Altre opzioni" type="button">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+              </svg>
+            </button>
+            <div class="more-dropdown-menu" id="moreDropdownMenu">
+              <button type="button" class="more-menu-item" id="openBatchTopBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
+                <span>Aggiungi blocco volumi</span>
+              </button>
+              <button type="button" class="more-menu-item" id="toggleSortBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/></svg>
+                <span>Ordinamento: <strong id="sortIndicatorText">Per Data</strong></span>
+              </button>
+              <button type="button" class="more-menu-item" id="historyDropdownBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+                <span>Storico aggiunte</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri temporali"></div>
+      <!-- Filtri veloci sottocategoria / temporali -->
+      <div class="time-filter-row" id="timeFilterRow" role="group" aria-label="Filtri veloci"></div>
+      
+      <!-- Flusso Card -->
       <div class="cards-flow" id="contentList" aria-live="polite"></div>
 
+      <!-- Sezione Già Acquistati -->
       <section class="purchased-section" id="purchasedSection" style="display: none;">
         <button class="accordion-header" id="togglePurchasedBtn" type="button" aria-expanded="false" aria-controls="purchasedList">
           <div class="accordion-title">
@@ -234,6 +211,61 @@
         <div class="accordion-body" id="purchasedList"></div>
       </section>
     </main>
+  </div>
+
+  <!-- MODALE SCHEDA RAPIDA 1-TAP (ACTION SHEET) -->
+  <div class="modal-backdrop" id="quickActionModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="quickSheetTitle">
+    <div class="modal-card quick-action-sheet">
+      <div class="quick-sheet-header">
+        <div class="quick-sheet-title-wrap">
+          <span class="item-tag-inline" id="quickSheetCategoryTag">Manga</span>
+          <h3 class="quick-sheet-title" id="quickSheetTitle">Titolo Opera</h3>
+        </div>
+        <button type="button" class="close-btn" id="closeQuickSheetBtn" aria-label="Chiudi scheda">&times;</button>
+      </div>
+
+      <div class="quick-steppers-grid">
+        <div class="quick-step-box">
+          <span class="quick-step-label">Volume #</span>
+          <div class="quick-step-controls">
+            <button type="button" class="quick-btn-round" id="quickVolMinusBtn">-</button>
+            <span class="quick-step-value" id="quickVolValue">#1</span>
+            <button type="button" class="quick-btn-round" id="quickVolPlusBtn">+</button>
+          </div>
+        </div>
+
+        <div class="quick-step-box">
+          <span class="quick-step-label">Capitolo Letto</span>
+          <div class="quick-step-controls">
+            <button type="button" class="quick-btn-round" id="quickChapMinusBtn">-</button>
+            <span class="quick-step-value" id="quickChapValue">0</span>
+            <button type="button" class="quick-btn-round" id="quickChapPlusBtn">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-sheet-actions">
+        <div class="quick-action-btn-row">
+          <button type="button" class="quick-action-btn" id="quickToggleReadBtn">
+            <span>📖</span>
+            <span id="quickReadBtnText">Segna come Letto</span>
+          </button>
+          <button type="button" class="quick-action-btn" id="quickOpenShelfBtn">
+            <span>📚</span>
+            <span>Scaffale 3D</span>
+          </button>
+        </div>
+
+        <div class="quick-action-btn-row">
+          <button type="button" class="quick-action-btn" id="quickOpenFullEditBtn">
+            <span>✏️ Modifica Completa</span>
+          </button>
+          <button type="button" class="quick-action-btn" id="quickDeleteBtn" style="color: var(--danger-color);">
+            <span>🗑️ Elimina</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- MODALE: MANGA SPINE SHELF 3D -->
@@ -453,50 +485,6 @@
           <button type="submit" class="btn-primary">Salva</button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- MODALE PANORAMICA POSSEDUTI -->
-  <div class="modal-backdrop" id="overviewModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="overviewTitleDisplay">
-    <div class="modal-card overview-card">
-      <div class="modal-header">
-        <div class="overview-title-wrap">
-          <span class="item-tag-inline" id="overviewCategoryTag">Manga</span>
-          <h2 id="overviewTitleDisplay">Titolo Opera</h2>
-        </div>
-        <button type="button" class="close-btn" id="closeOverviewBtn" aria-label="Chiudi panoramica">&times;</button>
-      </div>
-
-      <div class="overview-body">
-        <div class="overview-stats-row">
-          <div class="stat-pill">
-            <span class="stat-label">Ultimo Volume Posseduto</span>
-            <span class="stat-value" id="overviewVolumeDisplay">#0</span>
-          </div>
-          <div class="stat-pill" id="overviewGapPill" style="display: none;">
-            <span class="stat-label">Stato Raccolta</span>
-            <span class="stat-value text-orange" id="overviewGapDisplay">Incompleto</span>
-          </div>
-        </div>
-
-        <div class="input-group" style="margin-top: 1rem;">
-          <div class="label-with-hint">
-            <label for="overviewReadingProgressInput">A che capitolo / pagina sei arrivato a leggere?</label>
-            <span class="smart-hint">Visibile solo qui</span>
-          </div>
-          <input type="text" id="overviewReadingProgressInput" placeholder="es. Cap. 142 oppure Pag. 85...">
-        </div>
-
-        <div class="input-group" style="margin-top: 0.85rem;">
-          <label for="overviewCommentInput">Note e commento personale</label>
-          <textarea id="overviewCommentInput" rows="4" placeholder="Scrivi qui i tuoi pensieri, impressioni personali o promemoria sulla trama..."></textarea>
-        </div>
-
-        <div class="modal-actions" style="margin-top: 1.2rem;">
-          <button type="button" class="btn-secondary" id="overviewEditFullBtn">Modifica Scheda Completa</button>
-          <button type="button" class="btn-primary" id="saveOverviewDetailsBtn">Salva Modifiche</button>
-        </div>
-      </div>
     </div>
   </div>
 
