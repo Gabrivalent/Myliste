@@ -30,7 +30,7 @@ import {
   calculateMissingGaps
 } from './ui.js';
 
-// Registrazione PWA Service Worker
+// Registrazione Service Worker per PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch((err) => {
@@ -49,7 +49,7 @@ function generateUniqueId() {
 }
 
 // ----------------------------------------------------
-// STATO APPLICAZIONE LOCALE & SANITIZZAZIONE AUTOMATICA
+// STATO APPLICAZIONE & BONIFICA ID
 // ----------------------------------------------------
 const DEFAULT_DATA = {
   categories: ['Generale', 'Manga', 'Comics', 'Libri', 'Videogiochi'],
@@ -291,7 +291,7 @@ if (toggleSidebarBtn && twitchSidebar) {
   });
 }
 
-// Action Sheet 1-Tap Rapida
+// Action Sheet 1-Tap Rapida (Posseduti)
 const quickActionModalBackdrop = document.getElementById('quickActionModalBackdrop');
 const closeQuickSheetBtn = document.getElementById('closeQuickSheetBtn');
 const quickSheetCategoryTag = document.getElementById('quickSheetCategoryTag');
@@ -356,15 +356,14 @@ const batchTargetSet = document.getElementById('batchTargetSet');
 const batchCategorySelect = document.getElementById('batchCategorySelect');
 const existingTitlesListBatch = document.getElementById('existingTitlesListBatch');
 
-// Modale Verifica Barcode
+// Modale Scanner Rapido 1-Tap
 const openCheckerScanBtn = document.getElementById('openCheckerScanBtn');
 const openCheckerTopBtn = document.getElementById('openCheckerTopBtn');
 const closeCheckerModalBtn = document.getElementById('closeCheckerModalBtn');
-const checkerResetBtn = document.getElementById('checkerResetBtn');
-const checkerAddToAcquistiBtn = document.getElementById('checkerAddToAcquistiBtn');
-const checkerAddToPossedutiBtn = document.getElementById('checkerAddToPossedutiBtn');
+const checkerEditDetailsBtn = document.getElementById('checkerEditDetailsBtn');
+const checkerManualDetailsPanel = document.getElementById('checkerManualDetailsPanel');
 
-// Scanner ISBN nel Form Singolo
+// Scanner Inline nel Form Singolo
 const startScanBtn = document.getElementById('startScanBtn');
 const scannerContainer = document.getElementById('scannerContainer');
 const closeScannerBtn = document.getElementById('closeScannerBtn');
@@ -820,7 +819,7 @@ function createPossedutiAggregatedCard(series) {
     </div>
   `;
 
-  // Con 1 solo tocco si apre il pannello d'azione rapido
+  // 1 tocco apre l'Action Sheet rapida
   card.addEventListener('click', () => {
     openQuickActionSheet(series);
   });
@@ -1424,6 +1423,160 @@ if (shelfModalBackdrop) {
   });
 }
 
+// ----------------------------------------------------
+// SCANNER RAPIDO 1-TAP CONTINUO (A RAFFICA)
+// ----------------------------------------------------
+function handleFastScanAction(actionType, payload) {
+  const targetSetSelect = document.getElementById('scannerTargetSetPreset');
+  const targetSet = targetSetSelect ? targetSetSelect.value : 'Posseduti';
+
+  const customTitle = document.getElementById('scannerCustomTitle');
+  const customVol = document.getElementById('scannerCustomVol');
+  const customCat = document.getElementById('scannerCustomCat');
+  const customVariant = document.getElementById('scannerCustomVariant');
+
+  if (actionType === 'BUY_EXISTING') {
+    const prev = { ...payload };
+    payload.purchased = true;
+    pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...payload } });
+    saveData();
+    syncItemToSupabase(payload, saveData);
+    syncPurchasedWithPosseduti(payload);
+    renderList();
+    showToastNotice(`"${payload.title} #${payload.number}" acquistato e spostato in Posseduti!`);
+    resetCheckerPreview();
+  } else if (actionType === 'ADD_NEW') {
+    const finalTitle = (customTitle && customTitle.value.trim()) ? customTitle.value.trim() : payload.title;
+    const finalVol = (customVol && customVol.value.trim()) ? customVol.value.trim() : payload.number;
+    const finalCat = (customCat && customCat.value) ? customCat.value : payload.category;
+    const finalVariant = customVariant ? customVariant.checked : Boolean(payload.isVariant);
+
+    const newItem = {
+      id: generateUniqueId(),
+      title: finalTitle,
+      set: targetSet,
+      category: finalCat || 'Generale',
+      date: null,
+      number: finalVol || '1',
+      isbn: payload.isbn || null,
+      rating: null,
+      unplayed: false,
+      purchased: targetSet === 'Posseduti',
+      completed: false,
+      isRead: false,
+      isVariant: finalVariant,
+      missingGapNotice: null,
+      readingChapter: '',
+      privateComment: '',
+      createdAt: new Date().toISOString()
+    };
+
+    appData.items.unshift(newItem);
+    pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
+    saveData();
+    syncItemToSupabase(newItem, saveData);
+
+    if (targetSet === 'Posseduti' && !finalVariant) {
+      ensureItemInVoti(newItem.title, newItem.category);
+    }
+
+    renderList();
+    showToastNotice(`"${newItem.title} #${newItem.number}" aggiunto a ${targetSet}!`);
+
+    // Reset immediato: la fotocamera rimane attiva per il volume successivo
+    resetCheckerPreview();
+  }
+}
+
+function populateScannerCategories() {
+  const customCat = document.getElementById('scannerCustomCat');
+  if (!customCat) return;
+  customCat.innerHTML = '';
+  appData.categories.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    customCat.appendChild(opt);
+  });
+}
+
+function triggerFastScanner() {
+  populateScannerCategories();
+  const targetSetSelect = document.getElementById('scannerTargetSetPreset');
+  if (targetSetSelect) {
+    targetSetSelect.value = (activeSet === 'Acquisti' || activeSet === 'Posseduti') ? activeSet : 'Posseduti';
+  }
+  openCheckerModal(appData, activeCategory, handleFastScanAction);
+}
+
+if (openCheckerScanBtn) openCheckerScanBtn.addEventListener('click', triggerFastScanner);
+if (openCheckerTopBtn) openCheckerTopBtn.addEventListener('click', triggerFastScanner);
+if (closeCheckerModalBtn) closeCheckerModalBtn.addEventListener('click', stopCheckerModal);
+
+if (checkerEditDetailsBtn && checkerManualDetailsPanel) {
+  checkerEditDetailsBtn.addEventListener('click', () => {
+    const isHidden = checkerManualDetailsPanel.style.display === 'none';
+    checkerManualDetailsPanel.style.display = isHidden ? 'flex' : 'none';
+    checkerEditDetailsBtn.textContent = isHidden ? 'Nascondi Dettagli' : 'Modifica Dettagli';
+  });
+}
+
+// ----------------------------------------------------
+// SCANNER ISBN INLINE NEL FORM SINGOLO
+// ----------------------------------------------------
+if (startScanBtn) {
+  startScanBtn.addEventListener('click', () => {
+    scannerContainer.style.display = 'block';
+    scannerStatus.textContent = 'Avvio fotocamera in corso...';
+
+    if (!inlineHtml5Scanner) {
+      inlineHtml5Scanner = new Html5Qrcode('scannerReader');
+    }
+
+    inlineHtml5Scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 150 } },
+      async (decodedText) => {
+        scannerStatus.textContent = `Trovato: ${decodedText}. Ricerca dati...`;
+        stopInlineScanner();
+        await fetchBookDataByISBN(decodedText);
+      },
+      () => {}
+    ).catch(() => {
+      scannerStatus.textContent = 'Impossibile accedere alla fotocamera. Verifica i permessi.';
+    });
+  });
+}
+
+function stopInlineScanner() {
+  if (inlineHtml5Scanner) {
+    inlineHtml5Scanner.stop().catch(() => {}).then(() => {
+      if (scannerContainer) scannerContainer.style.display = 'none';
+    });
+  } else {
+    if (scannerContainer) scannerContainer.style.display = 'none';
+  }
+}
+
+if (closeScannerBtn) closeScannerBtn.addEventListener('click', stopInlineScanner);
+
+async function fetchBookDataByISBN(isbn) {
+  try {
+    const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
+    const result = await searchIsbnData(cleanIsbn);
+    if (result && result.title) {
+      itemTitle.value = result.title;
+      itemNumber.value = result.volume || '1';
+      categorySelect.value = result.category || 'Generale';
+      showToastNotice(`Riconosciuto: "${result.title}"!`);
+    } else {
+      showToastNotice(`ISBN ${cleanIsbn} rilevato. Inserisci il titolo.`);
+    }
+  } catch (err) {
+    showToastNotice('Ricerca online non riuscita. Compila a mano.');
+  }
+}
+
 function deleteItemWithUndo(item) {
   pushHistoryAction({ type: 'DELETE', data: { ...item } });
   deletedItemBuffer = { ...item };
@@ -1594,7 +1747,7 @@ modalBackdrop.addEventListener('click', (e) => {
 });
 
 // ----------------------------------------------------
-// SALVATAGGIO FORM CON CONTROLLO DUPLICATI
+// SALVATAGGIO FORM SINGOLO
 // ----------------------------------------------------
 itemForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1736,62 +1889,267 @@ itemForm.addEventListener('submit', (e) => {
   renderList();
 });
 
-// Scorciatoie da tastiera
-window.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
-    if (e.key === 'z' || e.key === 'Z') {
-      if (e.shiftKey) {
-        e.preventDefault();
-        executeRedo();
-      } else {
-        e.preventDefault();
-        executeUndo();
+// ----------------------------------------------------
+// BATCH INSERT (BLOCCO VOLUMI)
+// ----------------------------------------------------
+function openBatchModal() {
+  batchItemForm.reset();
+  batchStartVol.value = 1;
+  batchEndVol.value = 10;
+  batchTargetSet.value = (activeSet === 'Posseduti' || activeSet === 'Acquisti') ? activeSet : 'Posseduti';
+
+  batchCategorySelect.innerHTML = '';
+  appData.categories.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    if (cat === activeCategory && activeCategory !== 'Tutte') opt.selected = true;
+    batchCategorySelect.appendChild(opt);
+  });
+
+  const uniqueTitles = [...new Set(appData.items.map(i => i.title))];
+  existingTitlesListBatch.innerHTML = '';
+  uniqueTitles.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    existingTitlesListBatch.appendChild(opt);
+  });
+
+  batchModalBackdrop.classList.add('active');
+  batchTitle.focus();
+}
+
+function closeBatchModal() {
+  batchModalBackdrop.classList.remove('active');
+  batchItemForm.reset();
+}
+
+if (openBatchTopBtn) openBatchTopBtn.addEventListener('click', openBatchModal);
+if (closeBatchModalBtn) closeBatchModalBtn.addEventListener('click', closeBatchModal);
+if (cancelBatchBtn) cancelBatchBtn.addEventListener('click', closeBatchModal);
+
+if (batchModalBackdrop) {
+  batchModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === batchModalBackdrop) closeBatchModal();
+  });
+}
+
+if (batchItemForm) {
+  batchItemForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const title = batchTitle.value.trim();
+    const start = parseInt(batchStartVol.value, 10);
+    const end = parseInt(batchEndVol.value, 10);
+    const set = batchTargetSet.value;
+    const cat = batchCategorySelect.value || 'Generale';
+
+    if (!title) {
+      alert('Inserisci un titolo per la serie.');
+      return;
+    }
+    if (isNaN(start) || isNaN(end) || start > end) {
+      alert('Intervallo non valido: il volume iniziale deve essere minore o uguale al volume finale.');
+      return;
+    }
+
+    const createdItems = [];
+    for (let v = start; v <= end; v++) {
+      const exists = appData.items.some(i => 
+        i.title.toLowerCase() === title.toLowerCase() &&
+        i.set === set &&
+        String(i.number || '') === String(v) &&
+        !i.isVariant
+      );
+
+      if (!exists) {
+        createdItems.push({
+          id: generateUniqueId(),
+          title,
+          set,
+          category: cat,
+          date: null,
+          number: String(v),
+          isbn: null,
+          rating: null,
+          unplayed: false,
+          purchased: set === 'Posseduti',
+          completed: false,
+          isRead: false,
+          isVariant: false,
+          missingGapNotice: null,
+          readingChapter: '',
+          privateComment: '',
+          createdAt: new Date().toISOString()
+        });
       }
-      return;
-    } else if (e.key === 'y' || e.key === 'Y') {
-      e.preventDefault();
-      executeRedo();
+    }
+
+    if (createdItems.length === 0) {
+      alert(`Tutti i volumi selezionati di "${title}" sono già presenti!`);
       return;
     }
-  }
 
-  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
-    if (e.key === 'Escape') {
-      document.activeElement.blur();
-      closeModal();
-      closeBatchModal();
-      stopCheckerModal();
-      closeShelfModal();
-      closeQuickActionSheet();
-      closeSettingsModal();
-      if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
-      if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
-    }
-    return;
-  }
-
-  if (e.key === 'n' || e.key === 'N') {
-    e.preventDefault();
-    openCreateModal();
-  } else if (e.key === 'b' || e.key === 'B') {
-    e.preventDefault();
-    openBatchModal();
-  } else if (e.key === '/') {
-    e.preventDefault();
-    seriesSearchInput.focus();
-  } else if (e.key === 'Escape') {
-    closeModal();
+    appData.items.unshift(...createdItems);
+    pushHistoryAction({ type: 'INSERT', data: createdItems.map(i => ({ ...i })) });
+    saveData();
     closeBatchModal();
-    stopCheckerModal();
-    closeShelfModal();
-    closeQuickActionSheet();
-    closeSettingsModal();
-    if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
-    if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
-  }
-});
 
-// Sotto-viste Impostazioni
+    await syncBatchItemsToSupabase(createdItems);
+
+    if (set === 'Posseduti') {
+      ensureItemInVoti(title, cat);
+    }
+
+    showToastNotice(`Aggiunti ${createdItems.length} volumi di "${title}"!`);
+
+    if (activeSet !== set) {
+      activeSet = set;
+      localStorage.setItem('pref_set', activeSet);
+      document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
+        const isSelected = b.dataset.set === set;
+        b.classList.toggle('active', isSelected);
+        b.setAttribute('aria-selected', String(isSelected));
+      });
+      sortIndicatorText.textContent = SORT_LABELS[getCurrentSortMode()] || 'Per Data';
+      updateFilterBarChips();
+    }
+
+    renderList();
+  });
+}
+
+// ----------------------------------------------------
+// STORICO COMPLETO
+// ----------------------------------------------------
+function openFullHistoryModal() {
+  const modal = document.getElementById('fullHistoryModalBackdrop');
+  const listElem = document.getElementById('fullHistoryModalList');
+  if (!modal || !listElem) return;
+
+  const sortedAll = [...appData.items].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  listElem.innerHTML = '';
+  sortedAll.forEach(it => {
+    const d = document.createElement('div');
+    d.style.cssText = 'padding: 8px 12px; background: var(--bg-item-inner); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-card); display: flex; justify-content: space-between; align-items: center;';
+    d.innerHTML = `
+      <div>
+        <strong style="color: #fff;">${escapeHtml(it.title)} ${it.number ? '#' + it.number : ''}</strong>
+        <span style="font-size: 0.74rem; color: var(--text-dim); margin-left: 6px;">[${escapeHtml(it.set)}]</span>
+      </div>
+      <span style="font-size: 0.7rem; color: var(--accent-cyan);">${it.createdAt ? new Date(it.createdAt).toLocaleDateString('it-IT') : ''}</span>
+    `;
+    listElem.appendChild(d);
+  });
+
+  modal.classList.add('active');
+}
+
+const closeFullHistoryModalBtn = document.getElementById('closeFullHistoryModalBtn');
+const fullHistoryModalBackdrop = document.getElementById('fullHistoryModalBackdrop');
+
+if (closeFullHistoryModalBtn && fullHistoryModalBackdrop) {
+  closeFullHistoryModalBtn.addEventListener('click', () => {
+    fullHistoryModalBackdrop.classList.remove('active');
+  });
+  fullHistoryModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === fullHistoryModalBackdrop) {
+      fullHistoryModalBackdrop.classList.remove('active');
+    }
+  });
+}
+
+// ----------------------------------------------------
+// STATISTICHE
+// ----------------------------------------------------
+if (openStatsBtn) {
+  openStatsBtn.addEventListener('click', () => {
+    const allItems = appData.items;
+    const ownedItems = allItems.filter(i => i.set === 'Posseduti');
+    const scoredItems = allItems.filter(i => i.set === 'Voti' && !i.unplayed && i.rating !== null && i.rating !== undefined);
+    const gapsCount = ownedItems.filter(i => Boolean(i.missingGapNotice)).length;
+
+    statTotalItems.textContent = allItems.length;
+    statTotalOwned.textContent = ownedItems.length;
+
+    if (scoredItems.length > 0) {
+      const avg = Math.round(scoredItems.reduce((acc, curr) => acc + curr.rating, 0) / scoredItems.length);
+      statAverageRating.textContent = `${avg}/100`;
+    } else {
+      statAverageRating.textContent = '-';
+    }
+
+    if (ownedItems.length > 0) {
+      const completeRate = Math.round(((ownedItems.length - gapsCount) / ownedItems.length) * 100);
+      statCompleteRate.textContent = `${completeRate}%`;
+    } else {
+      statCompleteRate.textContent = '100%';
+    }
+
+    statsCatList.innerHTML = '';
+    const catStats = {};
+
+    appData.categories.forEach(c => {
+      catStats[c] = { ownedCount: 0, scores: [] };
+    });
+
+    ownedItems.forEach(i => {
+      const c = i.category || 'Generale';
+      if (!catStats[c]) catStats[c] = { ownedCount: 0, scores: [] };
+      catStats[c].ownedCount++;
+    });
+
+    scoredItems.forEach(i => {
+      const c = i.category || 'Generale';
+      if (!catStats[c]) catStats[c] = { ownedCount: 0, scores: [] };
+      catStats[c].scores.push(i.rating);
+    });
+
+    Object.entries(catStats).forEach(([cat, stat]) => {
+      const row = document.createElement('div');
+      row.className = 'stat-cat-row-detailed';
+
+      const color = getCategoryColor(cat);
+      const totalOwned = ownedItems.length || 1;
+      const percent = Math.round((stat.ownedCount / totalOwned) * 100);
+
+      let avgRatingText = 'N.D.';
+      if (stat.scores.length > 0) {
+        const avg = Math.round(stat.scores.reduce((a, b) => a + b, 0) / stat.scores.length);
+        avgRatingText = `${avg}/100`;
+      }
+
+      row.innerHTML = `
+        <div class="stat-cat-row-top">
+          <span style="color: ${color}; font-weight: 700; font-size: 0.95rem;">${escapeHtml(cat)}</span>
+          <span style="font-weight: 800; font-size: 0.95rem;">${stat.ownedCount} volumi</span>
+        </div>
+        <div class="stat-cat-progress-bg">
+          <div class="stat-cat-progress-fill" style="width: ${percent}%; background-color: ${color};"></div>
+        </div>
+        <div class="stat-cat-meta-row">
+          <span>${percent}% della collezione</span>
+          <span>Media Voti: <strong style="color: var(--accent-cyan);">${avgRatingText}</strong></span>
+        </div>
+      `;
+      statsCatList.appendChild(row);
+    });
+
+    statsModalBackdrop.classList.add('active');
+  });
+}
+
+if (closeStatsBtn) closeStatsBtn.addEventListener('click', () => statsModalBackdrop.classList.remove('active'));
+if (statsModalBackdrop) {
+  statsModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === statsModalBackdrop) statsModalBackdrop.classList.remove('active');
+  });
+}
+
+// ----------------------------------------------------
+// IMPOSTAZIONI & CRUD CATEGORIE
+// ----------------------------------------------------
 function showSettingsView(viewName) {
   settingsMainView.style.display = (viewName === 'main') ? 'block' : 'none';
   settingsAccountView.style.display = (viewName === 'account') ? 'block' : 'none';
@@ -1845,7 +2203,6 @@ settingsModalBackdrop.addEventListener('click', (e) => {
   if (e.target === settingsModalBackdrop) closeSettingsModal();
 });
 
-// CRUD Categorie
 function renderManageCategoriesList() {
   manageCatList.innerHTML = '';
 
@@ -2166,6 +2523,63 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
   closeSettingsModal();
   initApp();
   alert('Dati ripristinati allo stato iniziale sia in locale che su Supabase.');
+});
+
+// ----------------------------------------------------
+// SCORCIATOIE DA TASTIERA
+// ----------------------------------------------------
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    if (e.key === 'z' || e.key === 'Z') {
+      if (e.shiftKey) {
+        e.preventDefault();
+        executeRedo();
+      } else {
+        e.preventDefault();
+        executeUndo();
+      }
+      return;
+    } else if (e.key === 'y' || e.key === 'Y') {
+      e.preventDefault();
+      executeRedo();
+      return;
+    }
+  }
+
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    if (e.key === 'Escape') {
+      document.activeElement.blur();
+      closeModal();
+      closeBatchModal();
+      stopCheckerModal();
+      closeShelfModal();
+      closeQuickActionSheet();
+      closeSettingsModal();
+      if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
+      if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
+    }
+    return;
+  }
+
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    openCreateModal();
+  } else if (e.key === 'b' || e.key === 'B') {
+    e.preventDefault();
+    openBatchModal();
+  } else if (e.key === '/') {
+    e.preventDefault();
+    seriesSearchInput.focus();
+  } else if (e.key === 'Escape') {
+    closeModal();
+    closeBatchModal();
+    stopCheckerModal();
+    closeShelfModal();
+    closeQuickActionSheet();
+    closeSettingsModal();
+    if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
+    if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
+  }
 });
 
 // ----------------------------------------------------
