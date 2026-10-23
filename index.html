@@ -56,7 +56,7 @@
   <!-- LAYOUT PRINCIPALE -->
   <div class="site-layout" id="appContent" style="display: none;">
     
-    <!-- SIDEBAR FISSA A SINISTRA -->
+    <!-- BARRA DI NAVIGAZIONE (SIDEBAR SU DESKTOP / BOTTOM BAR SU MOBILE) -->
     <aside class="twitch-sidebar" id="twitchSidebar">
       <div class="sidebar-header">
         <div class="nav-brand">
@@ -91,6 +91,16 @@
           <span class="nav-label">Posseduti</span>
         </button>
 
+        <!-- PULSANTE SCANNER CENTRALE (MOBILE-FIRST) -->
+        <button class="nav-item-btn center-scan-btn" id="mobileCenterScanBtn" type="button" title="Scanner Barcode">
+          <div class="nav-icon-center">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
+            </svg>
+          </div>
+          <span class="nav-label">Scan</span>
+        </button>
+
         <button class="nav-item-btn" data-set="Voti" type="button" role="tab" aria-selected="false" title="Voti">
           <div class="nav-icon">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -111,15 +121,6 @@
       </nav>
 
       <div class="sidebar-footer">
-        <button class="nav-item-btn highlight-scan-nav" id="openCheckerScanBtn" type="button" title="Verifica se un volume è già tuo">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
-            </svg>
-          </div>
-          <span class="nav-label">Verifica Barcode</span>
-        </button>
-
         <button class="nav-item-btn" id="openStatsBtn" type="button" title="Statistiche">
           <div class="nav-icon">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -156,13 +157,6 @@
           <div class="filter-dropdown-pill">
             <select id="categoryFilter" aria-label="Filtra per categoria"></select>
           </div>
-
-          <button class="action-pill-btn accent-scan" id="openCheckerTopBtn" title="Scansiona codice a barre" type="button">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-              <path d="M4 4h3v2H5v2H3V4h1zm13 0h3v4h-2V6h-1V4zm3 13v3h-3v-2h1v-1h2zM7 20H4v-4h2v2h1v2zM2 9h20v2H2V9zm0 4h20v2H2v-2z"/>
-            </svg>
-            <span class="btn-text-desktop">Scanner</span>
-          </button>
 
           <!-- Menu compatto opzioni secondarie -->
           <div class="more-menu-wrapper">
@@ -226,7 +220,7 @@
 
       <div class="quick-steppers-grid">
         <div class="quick-step-box">
-          <span class="quick-step-label">Volume #</span>
+          <span class="quick-step-label">Ultimo Vol. #</span>
           <div class="quick-step-controls">
             <button type="button" class="quick-btn-round" id="quickVolMinusBtn">-</button>
             <span class="quick-step-value" id="quickVolValue">#1</span>
@@ -279,7 +273,7 @@
         <button type="button" class="close-btn" id="closeShelfModalBtn" aria-label="Chiudi scaffale">&times;</button>
       </div>
 
-      <p class="shelf-hint-text">Tocca un volume per vederne i dettagli o una sagoma vuota per aggiungerla agli Acquisti.</p>
+      <p class="shelf-hint-text">Tocca un volume per vederne i dettagli o una sagoma tratteggiata per aggiungere il volume mancante ad Acquisti.</p>
 
       <div class="shelf-viewport">
         <div class="manga-shelf-3d" id="shelfSpineContainer"></div>
@@ -288,13 +282,12 @@
     </div>
   </div>
 
-  <!-- MODALE: SCANNER RAPIDO 1-TAP (A RAFFICA) -->
+  <!-- MODALE: SCANNER RAPIDO 1-TAP CONTINUO -->
   <div class="modal-backdrop" id="checkerModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="checkerModalTitle">
     <div class="modal-card checker-modal-card">
       <div class="modal-header">
         <div class="scanner-header-left">
           <h2 id="checkerModalTitle">Scanner Rapido</h2>
-          <!-- Preset destinazione rapida -->
           <div class="scanner-preset-pill">
             <span>Salva in:</span>
             <select id="scannerTargetSetPreset" aria-label="Destinazione scansione predefinita">
@@ -320,7 +313,6 @@
           </div>
         </div>
 
-        <!-- Pannello modifiche opzionale a comparsa -->
         <div class="scanner-manual-details" id="checkerManualDetailsPanel" style="display: none;">
           <div class="form-row">
             <div class="input-group flex-1">
