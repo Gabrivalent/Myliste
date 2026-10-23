@@ -50,13 +50,25 @@ export function formatRowToItem(row) {
   };
 }
 
+export function ensureValidInt4Id(item) {
+  let numericId = parseInt(item.id, 10);
+  if (isNaN(numericId) || numericId <= 0 || numericId > 2147483647) {
+    numericId = Math.floor(Math.random() * 1900000000) + 1;
+    item.id = numericId;
+  }
+  return numericId;
+}
+
 export function createPayloadFromItem(item) {
   let cleanComment = item.privateComment || '';
   if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
     cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
   }
 
-  const payload = {
+  const validId = ensureValidInt4Id(item);
+
+  return {
+    id: validId,
     title: item.title,
     set_type: item.set,
     category: item.category || 'Generale',
@@ -70,16 +82,6 @@ export function createPayloadFromItem(item) {
     reading_chapter: item.readingChapter || null,
     private_comment: cleanComment
   };
-
-  // CONTROLLO INT4 (32-bit signed integer):
-  // Valore massimo per PostgreSQL: 2.147.483.647.
-  // Se l'ID è un timestamp o un numero gigante, viene omesso affinché Supabase generi un ID valido.
-  const numericId = parseInt(item.id, 10);
-  if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
-    payload.id = numericId;
-  }
-
-  return payload;
 }
 
 export async function syncItemToSupabase(item, onSaveCallback) {
@@ -95,7 +97,6 @@ export async function syncItemToSupabase(item, onSaveCallback) {
 
     if (error) throw error;
 
-    // Se Supabase ha generato o aggiornato l'ID, lo riallineiamo subito in locale
     if (data && data[0] && data[0].id) {
       item.id = Number(data[0].id);
       if (onSaveCallback) onSaveCallback();
@@ -125,7 +126,10 @@ export async function deleteItemFromSupabase(id) {
   if (!supabaseClient || !currentUser) return;
 
   try {
-    const { error } = await supabaseClient.from('items').delete().eq('id', id);
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId) || numericId <= 0 || numericId > 2147483647) return;
+
+    const { error } = await supabaseClient.from('items').delete().eq('id', numericId);
     if (error) throw error;
     setCloudStatus('online');
   } catch (err) {
