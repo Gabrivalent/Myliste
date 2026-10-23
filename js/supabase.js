@@ -1,123 +1,209 @@
 // js/supabase.js
-import { SUPABASE_CONFIG } from './config.js';
-import { state } from './state.js';
 
-let supabaseClient = null;
+export const SUPABASE_CONFIG = {
+  url: 'https://aiagtwiqeecaxhaaqzmx.supabase.co',
+  anonKey: 'sb_publishable_PodV98vtRyuW329msfQKrA_goxv6C_c'
+};
 
-export function initSupabase() {
-  if (window.supabase) {
-    supabaseClient = window.supabase.createClient(
-      SUPABASE_CONFIG.url,
-      SUPABASE_CONFIG.anonKey
-    );
-    setupRealtimeSubscription();
-    updateSyncIndicator("online", "Connesso");
+export let supabaseClient = null;
+export let realtimeChannel = null;
+export let currentUser = null;
+
+export function setCloudStatus(status) {
+  const cloudStatusDot = document.getElementById('cloudStatusDot');
+  if (!cloudStatusDot) return;
+  cloudStatusDot.classList.remove('online', 'error');
+  if (status === 'online') {
+    cloudStatusDot.classList.add('online');
+    cloudStatusDot.title = 'Sincronizzazione Cloud Realtime attiva';
+  } else if (status === 'error') {
+    cloudStatusDot.classList.add('error');
+    cloudStatusDot.title = 'Errore di connessione a Supabase';
   } else {
-    console.warn("Supabase SDK non trovato nel window object.");
-    updateSyncIndicator("offline", "Modalità Offline");
+    cloudStatusDot.title = 'In attesa di autenticazione';
   }
 }
 
-export function getSupabase() {
-  return supabaseClient;
+export function formatRowToItem(row) {
+  const comment = row.private_comment || '';
+  const isbnMatch = comment.match(/\[ISBN:\s*([0-9X]+)\]/i);
+  const extractedIsbn = isbnMatch ? isbnMatch[1] : null;
+
+  return {
+    id: Number(row.id),
+    title: row.title,
+    set: row.set_type,
+    category: row.category,
+    date: row.date,
+    number: row.number,
+    isbn: extractedIsbn,
+    rating: row.rating,
+    unplayed: Boolean(row.unplayed),
+    purchased: Boolean(row.purchased),
+    completed: Boolean(row.completed),
+    isRead: false,
+    isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
+    missingGapNotice: row.missing_gap_notice,
+    readingChapter: row.reading_chapter || '',
+    privateComment: comment,
+    createdAt: row.created_at || new Date().toISOString()
+  };
 }
 
-function updateSyncIndicator(statusClass, label) {
-  const syncStatus = document.getElementById("syncStatus");
-  const syncText = document.getElementById("syncText");
-  if (!syncStatus || !syncText) return;
+export function createPayloadFromItem(item) {
+  let cleanComment = item.privateComment || '';
+  if (item.isbn && !cleanComment.includes(`[ISBN: ${item.isbn}]`)) {
+    cleanComment = cleanComment ? `${cleanComment} [ISBN: ${item.isbn}]` : `[ISBN: ${item.isbn}]`;
+  }
 
-  syncStatus.className = `sync-indicator ${statusClass}`;
-  syncText.textContent = label;
-}
+  const payload = {
+    title: item.title,
+    set_type: item.set,
+    category: item.category || 'Generale',
+    date: item.date || null,
+    number: item.number ? String(item.number) : null,
+    rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
+    unplayed: Boolean(item.unplayed),
+    purchased: Boolean(item.purchased),
+    completed: Boolean(item.completed),
+    missing_gap_notice: item.missingGapNotice || null,
+    reading_chapter: item.readingChapter || null,
+    private_comment: cleanComment
+  };
 
-// NOTA CRITICA: user_id è tassativamente rimosso prima dell'upsert
-function sanitizePayload(rawItem) {
-  const payload = { ...rawItem };
-  delete payload.user_id; // Previene PGRST204 / 400
+  const numericId = parseInt(item.id, 10);
+  if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
+    payload.id = numericId;
+  }
   return payload;
 }
 
-export async function fetchRemoteItems() {
-  if (!supabaseClient) return [];
+export async function syncItemToSupabase(item, onSaveCallback) {
+  if (!supabaseClient || !currentUser) return;
+
   try {
-    updateSyncIndicator("syncing", "Sincronizzazione...");
+    const payload = createPayloadFromItem(item);
     const { data, error } = await supabaseClient
-      .from(SUPABASE_CONFIG.tableName)
-      .select("*")
-      .order("title", { ascending: true });
+      .from('items')
+      .upsert(payload)
+      .select();
 
     if (error) throw error;
-    if (data && Array.isArray(data)) {
-      state.items = data;
-      state.saveData();
+
+    if (data && data[0] && data[0].id) {
+      item.id = Number(data[0].id);
+      if (onSaveCallback) onSaveCallback();
     }
-    updateSyncIndicator("online", "Sincronizzato");
-    return data;
+    setCloudStatus('online');
   } catch (err) {
-    console.error("Errore fetch Supabase:", err);
-    updateSyncIndicator("online", "Locale / Errore Sync");
-    return [];
+    console.error(`Errore sync item #${item.id}:`, err);
+    setCloudStatus('error');
   }
 }
 
-export async function syncItemToRemote(item) {
-  if (!supabaseClient) return;
-  const cleanPayload = sanitizePayload(item);
+export async function syncBatchItemsToSupabase(itemsArray) {
+  if (!supabaseClient || !currentUser || itemsArray.length === 0) return;
 
   try {
-    updateSyncIndicator("syncing", "Salvataggio...");
-    const { error } = await supabaseClient
-      .from(SUPABASE_CONFIG.tableName)
-      .upsert(cleanPayload);
-
+    const payload = itemsArray.map(createPayloadFromItem);
+    const { error } = await supabaseClient.from('items').upsert(payload);
     if (error) throw error;
-    updateSyncIndicator("online", "Sincronizzato");
+    setCloudStatus('online');
   } catch (err) {
-    console.error("Errore upsert Supabase:", err);
-    updateSyncIndicator("online", "Errore salvataggio remoto");
+    console.error('Errore sync batch items:', err);
+    setCloudStatus('error');
   }
 }
 
-export async function deleteRemoteItem(id) {
-  if (!supabaseClient) return;
+export async function deleteItemFromSupabase(id) {
+  if (!supabaseClient || !currentUser) return;
+
   try {
-    updateSyncIndicator("syncing", "Eliminazione...");
-    const { error } = await supabaseClient
-      .from(SUPABASE_CONFIG.tableName)
-      .delete()
-      .eq("id", id);
-
+    const { error } = await supabaseClient.from('items').delete().eq('id', id);
     if (error) throw error;
-    updateSyncIndicator("online", "Sincronizzato");
+    setCloudStatus('online');
   } catch (err) {
-    console.error("Errore eliminazione Supabase:", err);
+    console.error(`Errore eliminazione item #${id}:`, err);
+    setCloudStatus('error');
   }
 }
 
-function setupRealtimeSubscription() {
-  if (!supabaseClient) return;
+export async function syncCategoriesToSupabase(categories) {
+  if (!supabaseClient || !currentUser) return;
 
-  supabaseClient
-    .channel("public:items_changes")
+  try {
+    const payload = categories.map(c => ({ id: c, name: c }));
+    const { error } = await supabaseClient.from('categories').upsert(payload);
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error('Errore sync categorie:', err);
+    setCloudStatus('error');
+  }
+}
+
+export function setupRealtimeSubscriptions(appData, callbacks) {
+  if (!supabaseClient || !currentUser) return;
+
+  if (realtimeChannel) {
+    supabaseClient.removeChannel(realtimeChannel);
+  }
+
+  realtimeChannel = supabaseClient
+    .channel('public:items')
     .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: SUPABASE_CONFIG.tableName },
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'items' },
       (payload) => {
-        const { eventType, new: newRecord, old: oldRecord } = payload;
-        if (eventType === "INSERT" || eventType === "UPDATE") {
-          const idx = state.items.findIndex(i => i.id === newRecord.id);
-          if (idx >= 0) {
-            state.items[idx] = newRecord;
-          } else {
-            state.items.push(newRecord);
+        const { eventType, new: newRow, old: oldRow } = payload;
+        if (eventType === 'INSERT') {
+          const exists = appData.items.some(i => i.id === Number(newRow.id));
+          if (!exists) {
+            appData.items.unshift(formatRowToItem(newRow));
+            callbacks.onDataChange();
           }
-          state.saveData();
-        } else if (eventType === "DELETE") {
-          state.items = state.items.filter(i => i.id !== oldRecord.id);
-          state.saveData();
+        } else if (eventType === 'UPDATE') {
+          const idx = appData.items.findIndex(i => i.id === Number(newRow.id));
+          if (idx !== -1) {
+            appData.items[idx] = formatRowToItem(newRow);
+            callbacks.onDataChange();
+          }
+        } else if (eventType === 'DELETE') {
+          if (oldRow && oldRow.id) {
+            appData.items = appData.items.filter(i => i.id !== Number(oldRow.id));
+            callbacks.onDataChange();
+          }
         }
       }
     )
-    .subscribe();
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        setCloudStatus('online');
+      }
+    });
+}
+
+export async function initAuth(callbacks) {
+  if (!window.supabase) return;
+
+  supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) {
+      currentUser = session.user;
+      callbacks.onAuthSuccess(session.user);
+    } else {
+      currentUser = null;
+      callbacks.onAuthLogout();
+    }
+  });
+
+  const { data } = await supabaseClient.auth.getSession();
+  if (data && data.session && data.session.user) {
+    currentUser = data.session.user;
+    callbacks.onAuthSuccess(data.session.user);
+  } else {
+    currentUser = null;
+    callbacks.onAuthLogout();
+  }
 }
