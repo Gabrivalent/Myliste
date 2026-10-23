@@ -1,429 +1,115 @@
-/* css/modals.css */
-
-/* 1. REGOLA CRITICA: TUTTI I MODALI SONO NASCOSTI DI DEFAULT */
-.modal-backdrop {
-  display: none !important;
-  position: fixed !important;
-  inset: 0 !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  background: rgba(0, 0, 0, 0.78) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
-  z-index: 9999 !important;
-  padding: 1rem !important;
-  overflow-y: auto !important;
-  box-sizing: border-box !important;
+/* ELIMINA DEFINITIVAMENTE IL FLICKERING VERDE DEGLI ANGOLI DI HTML5-QRCODE */
+#checkerCameraReader svg,
+#checkerCameraReader canvas,
+#checkerCameraReader > div > div {
+  border-color: rgba(255, 255, 255, 0.2) !important;
 }
 
-/* SI MOSTRANO SOLO QUANDO HANNO LA CLASSE .active */
-.modal-backdrop.active {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+#qr-shaded-region {
+  border-color: rgba(0, 0, 0, 0.5) !important;
 }
 
-/* 2. CARD MODALE */
-.modal-card {
-  background: #14161d !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 14px !important;
-  width: 100% !important;
-  max-width: 480px !important;
-  max-height: 90vh !important;
-  overflow-y: auto !important;
-  padding: 1.25rem !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8) !important;
-  color: #fff !important;
-  position: relative !important;
-  box-sizing: border-box !important;
-}
-
-.modal-header {
-  display: flex !important;
-  justify-content: space-between !important;
-  align-items: center !important;
-  margin-bottom: 1rem !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-  padding-bottom: 0.75rem !important;
-}
-
-.modal-header h2, .modal-header h3 {
-  font-size: 1.15rem !important;
-  font-weight: 700 !important;
-  color: #fff !important;
-  margin: 0 !important;
-}
-
-.close-btn {
-  background: none !important;
+/* Rimuove i bordi lampeggianti che html5-qrcode inietta dinamicamente */
+#checkerCameraReader div[style*="border: 2px solid"] {
   border: none !important;
-  color: #94a3b8 !important;
-  font-size: 1.5rem !important;
-  cursor: pointer !important;
-  padding: 0 4px !important;
-  line-height: 1 !important;
-}
-.close-btn:hover { color: #fff !important; }
-
-/* 3. FORMS E INPUTS DENTRO I MODALI */
-.input-group {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 0.35rem !important;
-  margin-bottom: 0.75rem !important;
 }
 
-.form-row {
-  display: flex !important;
-  gap: 0.6rem !important;
-}
-
-.flex-1 {
-  flex: 1 !important;
-  min-width: 0 !important;
-}
-
-label {
-  font-size: 0.78rem !important;
-  font-weight: 600 !important;
-  color: #94a3b8 !important;
-}
-
-input[type="text"],
-input[type="number"],
-input[type="date"],
-input[type="email"],
-input[type="password"],
-select,
-textarea {
-  background-color: #0b0c10 !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 8px !important;
-  padding: 0.65rem 0.8rem !important;
-  color: #fff !important;
-  font-size: 0.9rem !important;
-  width: 100% !important;
-  box-sizing: border-box !important;
-  outline: none !important;
-}
-
-input:focus, select:focus, textarea:focus {
-  border-color: #38bdf8 !important;
-}
-
-.modal-actions {
-  display: flex !important;
-  justify-content: flex-end !important;
-  gap: 0.6rem !important;
-  margin-top: 1rem !important;
-}
-
-.btn-primary {
-  background-color: #38bdf8 !important;
-  color: #0b1120 !important;
-  font-weight: 700 !important;
-  border: none !important;
-  padding: 0.6rem 1.1rem !important;
-  border-radius: 8px !important;
-  cursor: pointer !important;
-}
-
-.btn-secondary {
-  background: transparent !important;
-  color: #94a3b8 !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  padding: 0.6rem 1.1rem !important;
-  border-radius: 8px !important;
-  cursor: pointer !important;
-}
-
-.btn-danger {
-  background-color: #ef4444 !important;
-  color: #fff !important;
-  font-weight: 700 !important;
-  border: none !important;
-  padding: 0.6rem 1.1rem !important;
-  border-radius: 8px !important;
-  cursor: pointer !important;
-}
-
-.checkbox-row {
-  display: flex !important;
-  align-items: center !important;
-  gap: 0.6rem !important;
-  cursor: pointer !important;
-  font-size: 0.84rem !important;
-  color: #cbd5e1 !important;
-  user-select: none !important;
-}
-
-/* 4. MODALE SCANNER CENTRALE & PULITO */
+/* MODALE SCANNER DISTANZIATO (NON PIÙ AMMASSATO) */
 .checker-modal-card {
   max-width: 440px !important;
-  width: 100% !important;
-}
-
-.scanner-header-left {
+  width: 95vw !important;
+  padding: 1.25rem !important;
   display: flex !important;
-  align-items: center !important;
-  gap: 0.75rem !important;
+  flex-direction: column !important;
+  gap: 0.85rem !important;
 }
 
-.scanner-preset-pill {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 0.35rem !important;
-  background: rgba(255, 255, 255, 0.06) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  padding: 0.2rem 0.55rem !important;
-  border-radius: 20px !important;
-  font-size: 0.76rem !important;
-  color: #94a3b8 !important;
+.checker-header-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
-.scanner-preset-pill select {
-  background: transparent !important;
-  border: none !important;
-  color: #38bdf8 !important;
-  font-weight: 700 !important;
-  padding: 0 !important;
-  cursor: pointer !important;
+.checker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
 }
 
 .checker-camera-box {
-  position: relative !important;
-  width: 100% !important;
-  min-height: 240px !important;
-  max-height: 280px !important;
-  background: #000 !important;
-  border-radius: 12px !important;
-  overflow: hidden !important;
-  border: 2px solid rgba(255, 255, 255, 0.1) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  position: relative;
+  width: 100%;
+  height: 240px;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-#checkerCameraReader, #checkerCameraReader video {
+#checkerCameraReader {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+#checkerCameraReader video {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
 }
 
+/* Laser mirino statico elegante */
 .checker-laser-line {
-  position: absolute !important;
-  top: 50% !important;
-  left: 8% !important;
-  width: 84% !important;
-  height: 2px !important;
-  background: #ef4444 !important;
-  box-shadow: 0 0 8px #ef4444 !important;
-  pointer-events: none !important;
-  z-index: 5 !important;
+  position: absolute;
+  top: 50%;
+  left: 10%;
+  width: 80%;
+  height: 2px;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 8px var(--accent-cyan);
+  pointer-events: none;
+  z-index: 5;
 }
 
+/* BOX RISULTATO ARIOSO */
 .checker-result-box {
-  display: flex !important;
-  align-items: center !important;
-  gap: 0.75rem !important;
-  padding: 0.75rem !important;
-  border-radius: 10px !important;
-  border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
-  background: rgba(255, 255, 255, 0.03) !important;
-  margin-top: 0.75rem !important;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .checker-result-box.green-signal {
-  background: rgba(34, 197, 94, 0.12) !important;
-  border-color: #22c55e !important;
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-color: var(--accent-cyan) !important;
 }
-.checker-result-box.green-signal h3 { color: #4ade80 !important; }
 
 .checker-result-box.red-signal {
   background: rgba(239, 68, 68, 0.12) !important;
   border-color: #ef4444 !important;
 }
-.checker-result-box.red-signal h3 { color: #f87171 !important; }
 
-.checker-signal-icon { font-size: 1.6rem !important; flex-shrink: 0 !important; }
-.checker-signal-text h3 { font-size: 0.95rem !important; margin: 0 0 0.15rem !important; color: #fff !important; }
-.checker-signal-text p { font-size: 0.78rem !important; margin: 0 !important; color: #94a3b8 !important; }
-
-.fast-scan-action-btn {
-  width: 100% !important;
-  font-size: 0.92rem !important;
-  font-weight: 800 !important;
-  padding: 0.75rem 1rem !important;
-  border-radius: 9px !important;
-  background-color: #38bdf8 !important;
-  color: #0b1120 !important;
-  margin-top: 0.6rem !important;
+.checker-actions-footer {
+  display: flex;
+  gap: 0.6rem;
+  width: 100%;
+  margin-top: 0.25rem;
 }
 
-/* 5. ACTION SHEET 1-TAP (POSSEDUTI) */
-.quick-action-sheet {
-  max-width: 420px !important;
-}
-
-.quick-steppers-grid {
-  display: grid !important;
-  grid-template-columns: 1fr 1fr !important;
-  gap: 0.75rem !important;
-  margin: 1rem 0 !important;
-}
-
-.quick-step-box {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 10px !important;
-  padding: 0.75rem !important;
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  gap: 0.4rem !important;
-}
-
-.quick-step-label {
-  font-size: 0.74rem !important;
-  color: #94a3b8 !important;
-  font-weight: 600 !important;
-  text-transform: uppercase !important;
-}
-
-.quick-step-controls {
-  display: flex !important;
-  align-items: center !important;
-  gap: 0.6rem !important;
-}
-
-.quick-btn-round {
-  width: 32px !important;
-  height: 32px !important;
-  border-radius: 50% !important;
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  color: #fff !important;
-  font-weight: 800 !important;
-  cursor: pointer !important;
-}
-
-.quick-btn-round:hover {
-  background: #38bdf8 !important;
-  color: #0b1120 !important;
-}
-
-.quick-step-value {
-  font-size: 1.1rem !important;
-  font-weight: 800 !important;
-  color: #fff !important;
-  min-width: 36px !important;
-  text-align: center !important;
-}
-
-.quick-sheet-actions {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 0.5rem !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-  padding-top: 0.75rem !important;
-}
-
-.quick-action-btn-row {
-  display: flex !important;
-  gap: 0.5rem !important;
-}
-
-.quick-action-btn {
-  flex: 1 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0.4rem !important;
-  padding: 0.6rem !important;
-  border-radius: 8px !important;
-  font-size: 0.82rem !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: #fff !important;
-}
-
-/* 6. SCAFFALE 3D */
-.shelf-modal-card {
-  max-width: 860px !important;
-  width: 95vw !important;
-}
-
-.shelf-viewport {
-  background: #101216 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 12px !important;
-  padding: 1.5rem 1rem 0.5rem !important;
-  overflow-x: auto !important;
-}
-
-.manga-shelf-3d {
-  display: flex !important;
-  align-items: flex-end !important;
-  gap: 6px !important;
-  min-height: 220px !important;
-}
-
-.manga-spine {
-  position: relative !important;
-  width: 36px !important;
-  height: 200px !important;
-  border-radius: 4px 4px 1px 1px !important;
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: space-between !important;
-  align-items: center !important;
-  padding: 6px 2px !important;
-  cursor: pointer !important;
-  flex-shrink: 0 !important;
-  box-shadow: -2px 0 5px rgba(0,0,0,0.5) !important;
-}
-
-.spine-title-vertical {
-  writing-mode: vertical-rl !important;
-  transform: rotate(180deg) !important;
-  font-size: 0.7rem !important;
-  font-weight: 700 !important;
-  color: #fff !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  max-height: 120px !important;
-}
-
-.spine-vol-num {
-  font-size: 0.8rem !important;
-  font-weight: 800 !important;
-  color: #fff !important;
-  background: rgba(0, 0, 0, 0.5) !important;
-  width: 24px !important;
-  height: 24px !important;
-  border-radius: 50% !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-
-.manga-spine.missing-ghost {
-  background: transparent !important;
-  border: 1.5px dashed rgba(245, 158, 11, 0.4) !important;
-}
-
-.shelf-wood-base {
-  height: 14px !important;
-  background: #2b1810 !important;
-  border-top: 2px solid #4a281b !important;
-  border-radius: 3px !important;
-  margin-top: 4px !important;
+.scanner-manual-details {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-card);
+  border-radius: 10px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
