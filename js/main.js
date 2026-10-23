@@ -30,7 +30,7 @@ import {
   calculateMissingGaps
 } from './ui.js';
 
-// Registrazione Service Worker per PWA
+// Registrazione PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch((err) => {
@@ -49,7 +49,7 @@ function generateUniqueId() {
 }
 
 // ----------------------------------------------------
-// STATO APPLICAZIONE & BONIFICA ID
+// STATO APPLICAZIONE LOCALE
 // ----------------------------------------------------
 const DEFAULT_DATA = {
   categories: ['Generale', 'Manga', 'Comics', 'Libri', 'Videogiochi'],
@@ -116,9 +116,7 @@ const MAX_HISTORY_STEPS = 35;
 
 function pushHistoryAction(action) {
   historyUndoStack.push(action);
-  if (historyUndoStack.length > MAX_HISTORY_STEPS) {
-    historyUndoStack.shift();
-  }
+  if (historyUndoStack.length > MAX_HISTORY_STEPS) historyUndoStack.shift();
   historyRedoStack.length = 0;
   updateHistoryButtonsUI();
 }
@@ -138,9 +136,7 @@ async function executeUndo() {
     const ids = Array.isArray(action.data) ? action.data.map(i => i.id) : [action.data.id];
     appData.items = appData.items.filter(i => !ids.includes(i.id));
     saveData();
-    for (const id of ids) {
-      await deleteItemFromSupabase(id);
-    }
+    for (const id of ids) await deleteItemFromSupabase(id);
     showToastNotice('Creazione annullata');
   } else if (action.type === 'DELETE') {
     if (Array.isArray(action.data)) {
@@ -187,9 +183,7 @@ async function executeRedo() {
     const ids = Array.isArray(action.data) ? action.data.map(i => i.id) : [action.data.id];
     appData.items = appData.items.filter(i => !ids.includes(i.id));
     saveData();
-    for (const id of ids) {
-      await deleteItemFromSupabase(id);
-    }
+    for (const id of ids) await deleteItemFromSupabase(id);
     showToastNotice('Eliminazione riapplicata');
   } else if (action.type === 'UPDATE') {
     const idx = appData.items.findIndex(i => i.id === action.next.id);
@@ -216,9 +210,6 @@ function saveData() {
   localStorage.setItem('collection_data', JSON.stringify(appData));
 }
 
-// ----------------------------------------------------
-// SINCRONIZZAZIONE AUTOMATICA POSSEDUTI -> VOTI
-// ----------------------------------------------------
 async function ensureItemInVoti(title, category) {
   const titleClean = title.trim().toLowerCase();
   const catClean = (category || 'Generale').trim().toLowerCase();
@@ -276,12 +267,6 @@ const undoToast = document.getElementById('undoToast');
 const undoToastMsg = document.getElementById('undoToastMsg');
 const undoBtn = document.getElementById('undoBtn');
 
-const historyUndoBtn = document.getElementById('historyUndoBtn');
-const historyRedoBtn = document.getElementById('historyRedoBtn');
-
-if (historyUndoBtn) historyUndoBtn.addEventListener('click', executeUndo);
-if (historyRedoBtn) historyRedoBtn.addEventListener('click', executeRedo);
-
 const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
 const twitchSidebar = document.getElementById('twitchSidebar');
 
@@ -291,7 +276,7 @@ if (toggleSidebarBtn && twitchSidebar) {
   });
 }
 
-// Action Sheet 1-Tap Rapida (Posseduti)
+// Action Sheet Rapida
 const quickActionModalBackdrop = document.getElementById('quickActionModalBackdrop');
 const closeQuickSheetBtn = document.getElementById('closeQuickSheetBtn');
 const quickSheetCategoryTag = document.getElementById('quickSheetCategoryTag');
@@ -308,7 +293,7 @@ const quickOpenShelfBtn = document.getElementById('quickOpenShelfBtn');
 const quickOpenFullEditBtn = document.getElementById('quickOpenFullEditBtn');
 const quickDeleteBtn = document.getElementById('quickDeleteBtn');
 
-// Modale Manga Spine Shelf 3D
+// Modale Scaffale 3D
 const shelfModalBackdrop = document.getElementById('shelfModalBackdrop');
 const closeShelfModalBtn = document.getElementById('closeShelfModalBtn');
 const shelfSeriesTitle = document.getElementById('shelfSeriesTitle');
@@ -356,14 +341,14 @@ const batchTargetSet = document.getElementById('batchTargetSet');
 const batchCategorySelect = document.getElementById('batchCategorySelect');
 const existingTitlesListBatch = document.getElementById('existingTitlesListBatch');
 
-// Modale Scanner Rapido 1-Tap
+// Modale Scanner Rapido 1-Tap & Pulsante Mobile Centrale
+const mobileCenterScanBtn = document.getElementById('mobileCenterScanBtn');
 const openCheckerScanBtn = document.getElementById('openCheckerScanBtn');
-const openCheckerTopBtn = document.getElementById('openCheckerTopBtn');
 const closeCheckerModalBtn = document.getElementById('closeCheckerModalBtn');
 const checkerEditDetailsBtn = document.getElementById('checkerEditDetailsBtn');
 const checkerManualDetailsPanel = document.getElementById('checkerManualDetailsPanel');
 
-// Scanner Inline nel Form Singolo
+// Scanner Form Singolo
 const startScanBtn = document.getElementById('startScanBtn');
 const scannerContainer = document.getElementById('scannerContainer');
 const closeScannerBtn = document.getElementById('closeScannerBtn');
@@ -452,10 +437,10 @@ toggleSortBtn.addEventListener('click', () => {
 });
 
 setTabs.addEventListener('click', (e) => {
-  const btn = e.target.closest('.nav-item-btn') || e.target.closest('.segment-btn');
+  const btn = e.target.closest('.nav-item-btn');
   if (!btn || !btn.dataset.set) return;
 
-  document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
+  document.querySelectorAll('#setTabs .nav-item-btn').forEach(b => {
     b.classList.remove('active');
     b.setAttribute('aria-selected', 'false');
   });
@@ -705,6 +690,23 @@ function renderPurchasesLayout(items) {
   });
 }
 
+// ----------------------------------------------------
+// LAYOUT AGGREGATO POSSEDUTI (CON RANGE REALE DI TUTTI I VOLUMI)
+// ----------------------------------------------------
+function formatVolumeSequence(numbersArray) {
+  if (numbersArray.length === 0) return 'Nessuno';
+  const nums = [...numbersArray].sort((a, b) => a - b);
+
+  if (nums.length === 1) return `#${nums[0]}`;
+
+  const isContinuous = nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
+  if (isContinuous) {
+    return `#${nums[0]} - #${nums[nums.length - 1]}`;
+  }
+
+  return nums.map(n => `#${n}`).join(', ');
+}
+
 function renderPossedutiAggregatedLayout(items) {
   purchasedSection.style.display = 'none';
   const filtered = items.filter(matchesActiveFilter);
@@ -738,19 +740,23 @@ function renderPossedutiAggregatedLayout(items) {
 
     regularVols.sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
 
-    const highestVolItem = regularVols.length > 0 
-      ? regularVols[regularVols.length - 1] 
-      : vols[0];
-
+    const highestVolItem = regularVols.length > 0 ? regularVols[regularVols.length - 1] : vols[0];
     const missingGaps = calculateMissingGaps(regularVols);
+
+    const validNumbers = regularVols
+      .map(v => parseInt(v.number, 10))
+      .filter(n => !isNaN(n));
 
     aggregatedSeriesList.push({
       representativeItem: highestVolItem,
       allVolumes: vols,
+      regularVolumes: regularVols,
       regularCount: regularVols.length,
       variantCount: variantVols.length,
       missingGaps: missingGaps,
-      maxNumber: highestVolItem.number || '1'
+      maxNumber: highestVolItem.number || '1',
+      ownedNumbers: validNumbers,
+      formattedSequence: formatVolumeSequence(validNumbers)
     });
   });
 
@@ -767,7 +773,7 @@ function renderPossedutiAggregatedLayout(items) {
 }
 
 // ----------------------------------------------------
-// CARD PULITA E MINIMALE PER POSSEDUTI
+// CARD POSSEDUTI: MOSTRA TUTTI I VOLUMI + TASTO RAPIDO (+1)
 // ----------------------------------------------------
 function createPossedutiAggregatedCard(series) {
   const item = series.representativeItem;
@@ -807,7 +813,7 @@ function createPossedutiAggregatedCard(series) {
         </div>
         <span class="item-name">${escapeHtml(item.title)}</span>
         <div class="item-meta-subtitle">
-          <span>Posseduti: <strong>${series.regularCount}</strong></span>
+          <span>Volumi: <strong style="color: var(--text-primary);">${escapeHtml(series.formattedSequence)}</strong> (${series.regularCount} vol.)</span>
           ${readingSubtitle}
         </div>
       </div>
@@ -815,11 +821,19 @@ function createPossedutiAggregatedCard(series) {
 
     <div class="card-right-section">
       ${gapBadgeHtml}
+      <button type="button" class="quick-plus-btn" title="Aggiungi rapidamente il volume successivo">+1</button>
       <span class="item-num">#${escapeHtml(series.maxNumber)}</span>
     </div>
   `;
 
-  // 1 tocco apre l'Action Sheet rapida
+  // Tasto rapido +1: crea istantaneamente il volume successivo
+  const plusBtn = card.querySelector('.quick-plus-btn');
+  plusBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await createDirectNextOwnedVolume(series);
+  });
+
+  // Tocco su tutta la card: apre la scheda rapida
   card.addEventListener('click', () => {
     openQuickActionSheet(series);
   });
@@ -827,8 +841,44 @@ function createPossedutiAggregatedCard(series) {
   return card;
 }
 
+// Creazione istantanea del volume successivo per Posseduti (+1)
+async function createDirectNextOwnedVolume(series) {
+  const currentMax = parseInt(series.maxNumber, 10);
+  const nextNumber = isNaN(currentMax) ? 1 : currentMax + 1;
+  const item = series.representativeItem;
+
+  const newItem = {
+    id: generateUniqueId(),
+    title: item.title,
+    set: 'Posseduti',
+    category: item.category || 'Generale',
+    date: null,
+    number: String(nextNumber),
+    isbn: null,
+    rating: null,
+    unplayed: false,
+    purchased: true,
+    completed: false,
+    isRead: false,
+    isVariant: false,
+    missingGapNotice: null,
+    readingChapter: item.readingChapter || '',
+    privateComment: '',
+    createdAt: new Date().toISOString()
+  };
+
+  appData.items.unshift(newItem);
+  pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
+  saveData();
+  await syncItemToSupabase(newItem, saveData);
+  ensureItemInVoti(newItem.title, newItem.category);
+
+  renderList();
+  showToastNotice(`Aggiunto "${newItem.title} #${nextNumber}" a Posseduti!`);
+}
+
 // ----------------------------------------------------
-// CARD PULITA PER ACQUISTI, VOTI E LISTE
+// CARD ACQUISTI, VOTI E LISTE
 // ----------------------------------------------------
 function createItemCard(item, isCompact, medalIcon = null) {
   const card = document.createElement('div');
@@ -863,6 +913,11 @@ function createItemCard(item, isCompact, medalIcon = null) {
                        dateInfo.badgeType === 'yesterday' ? 'badge-yesterday' :
                        dateInfo.badgeType === 'countdown' ? 'badge-countdown' : '';
     dateBadgeHtml = `<span class="date-badge ${badgeClass}">${escapeHtml(dateInfo.badgeText)}</span>`;
+  }
+
+  let plusNextHtml = '';
+  if (item.set === 'Acquisti' && item.number && !isNaN(parseInt(item.number, 10)) && !item.completed) {
+    plusNextHtml = `<button type="button" class="quick-plus-btn" title="Aggiungi il volume successivo">+1</button>`;
   }
 
   let mainValueHtml = '';
@@ -905,6 +960,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
 
     <div class="card-right-section">
       ${dateBadgeHtml}
+      ${plusNextHtml}
       ${mainValueHtml}
     </div>
   `;
@@ -916,7 +972,6 @@ function createItemCard(item, isCompact, medalIcon = null) {
       item.purchased = !item.purchased;
 
       pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
-
       saveData();
       syncItemToSupabase(item, saveData);
 
@@ -928,10 +983,43 @@ function createItemCard(item, isCompact, medalIcon = null) {
 
       renderList();
     });
+
+    const plusBtn = card.querySelector('.quick-plus-btn');
+    if (plusBtn) {
+      plusBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const nextNum = (parseInt(item.number, 10) || 0) + 1;
+        const newItem = {
+          id: generateUniqueId(),
+          title: item.title,
+          set: 'Acquisti',
+          category: item.category || 'Generale',
+          date: null,
+          number: String(nextNum),
+          isbn: null,
+          rating: null,
+          unplayed: false,
+          purchased: false,
+          completed: false,
+          isRead: false,
+          isVariant: false,
+          missingGapNotice: null,
+          readingChapter: '',
+          privateComment: '',
+          createdAt: new Date().toISOString()
+        };
+        appData.items.unshift(newItem);
+        pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
+        saveData();
+        await syncItemToSupabase(newItem, saveData);
+        renderList();
+        showToastNotice(`"${newItem.title} #${nextNum}" aggiunto agli Acquisti!`);
+      });
+    }
   }
 
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.check-btn')) return;
+    if (e.target.closest('.check-btn') || e.target.closest('.quick-plus-btn')) return;
     openEditModal(item);
   });
 
@@ -968,7 +1056,6 @@ if (quickActionModalBackdrop) {
   });
 }
 
-// Incremento/Decremento rapido Volume
 if (quickVolPlusBtn) {
   quickVolPlusBtn.addEventListener('click', async () => {
     if (!currentActiveSeries) return;
@@ -987,7 +1074,6 @@ if (quickVolMinusBtn) {
   });
 }
 
-// Incremento/Decremento rapido Capitolo
 if (quickChapPlusBtn) {
   quickChapPlusBtn.addEventListener('click', async () => {
     if (!currentActiveSeries) return;
@@ -1006,7 +1092,6 @@ if (quickChapMinusBtn) {
   });
 }
 
-// Toggle stato lettura
 if (quickToggleReadBtn) {
   quickToggleReadBtn.addEventListener('click', async () => {
     if (!currentActiveSeries) return;
@@ -1016,7 +1101,6 @@ if (quickToggleReadBtn) {
   });
 }
 
-// Apri Scaffale 3D
 if (quickOpenShelfBtn) {
   quickOpenShelfBtn.addEventListener('click', () => {
     if (!currentActiveSeries) return;
@@ -1027,7 +1111,6 @@ if (quickOpenShelfBtn) {
   });
 }
 
-// Apri Modifica Completa
 if (quickOpenFullEditBtn) {
   quickOpenFullEditBtn.addEventListener('click', () => {
     if (!currentActiveSeries) return;
@@ -1037,7 +1120,6 @@ if (quickOpenFullEditBtn) {
   });
 }
 
-// Elimina da Action Sheet
 if (quickDeleteBtn) {
   quickDeleteBtn.addEventListener('click', () => {
     if (!currentActiveSeries) return;
@@ -1073,9 +1155,7 @@ async function handleDeletePossedutiPrompt(series) {
       const idsToDelete = series.allVolumes.map(v => v.id);
       appData.items = appData.items.filter(i => !idsToDelete.includes(i.id));
       saveData();
-      for (const id of idsToDelete) {
-        await deleteItemFromSupabase(id);
-      }
+      for (const id of idsToDelete) await deleteItemFromSupabase(id);
       renderList();
       showToastNotice(`Cancellata l'intera serie "${title}"`);
     }
@@ -1424,7 +1504,7 @@ if (shelfModalBackdrop) {
 }
 
 // ----------------------------------------------------
-// SCANNER RAPIDO 1-TAP CONTINUO (A RAFFICA)
+// SCANNER RAPIDO CONTINUO
 // ----------------------------------------------------
 function handleFastScanAction(actionType, payload) {
   const targetSetSelect = document.getElementById('scannerTargetSetPreset');
@@ -1482,8 +1562,6 @@ function handleFastScanAction(actionType, payload) {
 
     renderList();
     showToastNotice(`"${newItem.title} #${newItem.number}" aggiunto a ${targetSet}!`);
-
-    // Reset immediato: la fotocamera rimane attiva per il volume successivo
     resetCheckerPreview();
   }
 }
@@ -1509,8 +1587,9 @@ function triggerFastScanner() {
   openCheckerModal(appData, activeCategory, handleFastScanAction);
 }
 
+// Collegamento tasti scanner (Centrale mobile + Top desktop)
+if (mobileCenterScanBtn) mobileCenterScanBtn.addEventListener('click', triggerFastScanner);
 if (openCheckerScanBtn) openCheckerScanBtn.addEventListener('click', triggerFastScanner);
-if (openCheckerTopBtn) openCheckerTopBtn.addEventListener('click', triggerFastScanner);
 if (closeCheckerModalBtn) closeCheckerModalBtn.addEventListener('click', stopCheckerModal);
 
 if (checkerEditDetailsBtn && checkerManualDetailsPanel) {
@@ -1519,62 +1598,6 @@ if (checkerEditDetailsBtn && checkerManualDetailsPanel) {
     checkerManualDetailsPanel.style.display = isHidden ? 'flex' : 'none';
     checkerEditDetailsBtn.textContent = isHidden ? 'Nascondi Dettagli' : 'Modifica Dettagli';
   });
-}
-
-// ----------------------------------------------------
-// SCANNER ISBN INLINE NEL FORM SINGOLO
-// ----------------------------------------------------
-if (startScanBtn) {
-  startScanBtn.addEventListener('click', () => {
-    scannerContainer.style.display = 'block';
-    scannerStatus.textContent = 'Avvio fotocamera in corso...';
-
-    if (!inlineHtml5Scanner) {
-      inlineHtml5Scanner = new Html5Qrcode('scannerReader');
-    }
-
-    inlineHtml5Scanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 150 } },
-      async (decodedText) => {
-        scannerStatus.textContent = `Trovato: ${decodedText}. Ricerca dati...`;
-        stopInlineScanner();
-        await fetchBookDataByISBN(decodedText);
-      },
-      () => {}
-    ).catch(() => {
-      scannerStatus.textContent = 'Impossibile accedere alla fotocamera. Verifica i permessi.';
-    });
-  });
-}
-
-function stopInlineScanner() {
-  if (inlineHtml5Scanner) {
-    inlineHtml5Scanner.stop().catch(() => {}).then(() => {
-      if (scannerContainer) scannerContainer.style.display = 'none';
-    });
-  } else {
-    if (scannerContainer) scannerContainer.style.display = 'none';
-  }
-}
-
-if (closeScannerBtn) closeScannerBtn.addEventListener('click', stopInlineScanner);
-
-async function fetchBookDataByISBN(isbn) {
-  try {
-    const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
-    const result = await searchIsbnData(cleanIsbn);
-    if (result && result.title) {
-      itemTitle.value = result.title;
-      itemNumber.value = result.volume || '1';
-      categorySelect.value = result.category || 'Generale';
-      showToastNotice(`Riconosciuto: "${result.title}"!`);
-    } else {
-      showToastNotice(`ISBN ${cleanIsbn} rilevato. Inserisci il titolo.`);
-    }
-  } catch (err) {
-    showToastNotice('Ricerca online non riuscita. Compila a mano.');
-  }
 }
 
 function deleteItemWithUndo(item) {
@@ -1674,7 +1697,6 @@ function openCreateModalWithTitle(initialTitle) {
   modalTitle.textContent = 'Nuovo Elemento';
   editItemId.value = '';
   itemForm.reset();
-  stopInlineScanner();
   itemScoreInput.disabled = false;
   itemScoreInput.placeholder = 'es. 85';
   if (itemVariantCheckbox) itemVariantCheckbox.checked = false;
@@ -1688,9 +1710,7 @@ function openCreateModalWithTitle(initialTitle) {
   adjustModalFields(activeSet);
   categorySelect.value = (activeCategory !== 'Tutte') ? activeCategory : 'Generale';
 
-  if (initialTitle) {
-    itemTitle.value = initialTitle;
-  }
+  if (initialTitle) itemTitle.value = initialTitle;
 
   modalBackdrop.classList.add('active');
   itemTitle.focus();
@@ -1699,7 +1719,6 @@ function openCreateModalWithTitle(initialTitle) {
 function openEditModal(item) {
   modalTitle.textContent = 'Modifica Elemento';
   editItemId.value = item.id;
-  stopInlineScanner();
   populateFormCategories();
   updateAutoCompletionList();
 
@@ -1732,7 +1751,6 @@ function openEditModal(item) {
 }
 
 function closeModal() {
-  stopInlineScanner();
   modalBackdrop.classList.remove('active');
   itemForm.reset();
   editItemId.value = '';
@@ -1746,9 +1764,6 @@ modalBackdrop.addEventListener('click', (e) => {
   if (e.target === modalBackdrop) closeModal();
 });
 
-// ----------------------------------------------------
-// SALVATAGGIO FORM SINGOLO
-// ----------------------------------------------------
 itemForm.addEventListener('submit', (e) => {
   e.preventDefault();
 
@@ -1766,34 +1781,6 @@ itemForm.addEventListener('submit', (e) => {
   }
 
   const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (itemNumber.value.trim() || null) : null;
-
-  if (!idToEdit) {
-    if (set === 'Voti' || set === 'Liste') {
-      const duplicateInOther = appData.items.find(i => 
-        i.title.toLowerCase() === title.toLowerCase() &&
-        (i.set === 'Voti' || i.set === 'Liste')
-      );
-
-      if (duplicateInOther) {
-        alert(`Impossibile aggiungere: "${title}" è già presente nella sezione "${duplicateInOther.set}"!`);
-        return;
-      }
-    }
-
-    if (!isVariantChecked) {
-      const duplicateSame = appData.items.find(i => 
-        i.title.toLowerCase() === title.toLowerCase() &&
-        i.set === set &&
-        String(i.number || '') === String(number || '') &&
-        !i.isVariant
-      );
-
-      if (duplicateSame) {
-        alert(`"${title}" ${number ? '#' + number : ''} è già presente in "${set}"! Se si tratta di una variant, spunta "Edizione Variant".`);
-        return;
-      }
-    }
-  }
 
   if (!idToEdit && typedCat) {
     category = typedCat;
@@ -1877,7 +1864,7 @@ itemForm.addEventListener('submit', (e) => {
   if (activeSet !== set) {
     activeSet = set;
     localStorage.setItem('pref_set', activeSet);
-    document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
+    document.querySelectorAll('#setTabs .nav-item-btn').forEach(b => {
       const isSelected = b.dataset.set === set;
       b.classList.toggle('active', isSelected);
       b.setAttribute('aria-selected', String(isSelected));
@@ -1889,9 +1876,7 @@ itemForm.addEventListener('submit', (e) => {
   renderList();
 });
 
-// ----------------------------------------------------
-// BATCH INSERT (BLOCCO VOLUMI)
-// ----------------------------------------------------
+// Modale Batch (Blocco Volumi)
 function openBatchModal() {
   batchItemForm.reset();
   batchStartVol.value = 1;
@@ -1944,10 +1929,7 @@ if (batchItemForm) {
     const set = batchTargetSet.value;
     const cat = batchCategorySelect.value || 'Generale';
 
-    if (!title) {
-      alert('Inserisci un titolo per la serie.');
-      return;
-    }
+    if (!title) return;
     if (isNaN(start) || isNaN(end) || start > end) {
       alert('Intervallo non valido: il volume iniziale deve essere minore o uguale al volume finale.');
       return;
@@ -1955,39 +1937,25 @@ if (batchItemForm) {
 
     const createdItems = [];
     for (let v = start; v <= end; v++) {
-      const exists = appData.items.some(i => 
-        i.title.toLowerCase() === title.toLowerCase() &&
-        i.set === set &&
-        String(i.number || '') === String(v) &&
-        !i.isVariant
-      );
-
-      if (!exists) {
-        createdItems.push({
-          id: generateUniqueId(),
-          title,
-          set,
-          category: cat,
-          date: null,
-          number: String(v),
-          isbn: null,
-          rating: null,
-          unplayed: false,
-          purchased: set === 'Posseduti',
-          completed: false,
-          isRead: false,
-          isVariant: false,
-          missingGapNotice: null,
-          readingChapter: '',
-          privateComment: '',
-          createdAt: new Date().toISOString()
-        });
-      }
-    }
-
-    if (createdItems.length === 0) {
-      alert(`Tutti i volumi selezionati di "${title}" sono già presenti!`);
-      return;
+      createdItems.push({
+        id: generateUniqueId(),
+        title,
+        set,
+        category: cat,
+        date: null,
+        number: String(v),
+        isbn: null,
+        rating: null,
+        unplayed: false,
+        purchased: set === 'Posseduti',
+        completed: false,
+        isRead: false,
+        isVariant: false,
+        missingGapNotice: null,
+        readingChapter: '',
+        privateComment: '',
+        createdAt: new Date().toISOString()
+      });
     }
 
     appData.items.unshift(...createdItems);
@@ -2002,26 +1970,11 @@ if (batchItemForm) {
     }
 
     showToastNotice(`Aggiunti ${createdItems.length} volumi di "${title}"!`);
-
-    if (activeSet !== set) {
-      activeSet = set;
-      localStorage.setItem('pref_set', activeSet);
-      document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
-        const isSelected = b.dataset.set === set;
-        b.classList.toggle('active', isSelected);
-        b.setAttribute('aria-selected', String(isSelected));
-      });
-      sortIndicatorText.textContent = SORT_LABELS[getCurrentSortMode()] || 'Per Data';
-      updateFilterBarChips();
-    }
-
     renderList();
   });
 }
 
-// ----------------------------------------------------
-// STORICO COMPLETO
-// ----------------------------------------------------
+// Storico Modale
 function openFullHistoryModal() {
   const modal = document.getElementById('fullHistoryModalBackdrop');
   const listElem = document.getElementById('fullHistoryModalList');
@@ -2054,15 +2007,11 @@ if (closeFullHistoryModalBtn && fullHistoryModalBackdrop) {
     fullHistoryModalBackdrop.classList.remove('active');
   });
   fullHistoryModalBackdrop.addEventListener('click', (e) => {
-    if (e.target === fullHistoryModalBackdrop) {
-      fullHistoryModalBackdrop.classList.remove('active');
-    }
+    if (e.target === fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
   });
 }
 
-// ----------------------------------------------------
-// STATISTICHE
-// ----------------------------------------------------
+// Statistiche
 if (openStatsBtn) {
   openStatsBtn.addEventListener('click', () => {
     const allItems = appData.items;
@@ -2147,9 +2096,7 @@ if (statsModalBackdrop) {
   });
 }
 
-// ----------------------------------------------------
-// IMPOSTAZIONI & CRUD CATEGORIE
-// ----------------------------------------------------
+// Impostazioni
 function showSettingsView(viewName) {
   settingsMainView.style.display = (viewName === 'main') ? 'block' : 'none';
   settingsAccountView.style.display = (viewName === 'account') ? 'block' : 'none';
@@ -2490,7 +2437,7 @@ importJsonFileInput.addEventListener('change', (e) => {
   reader.readAsText(file);
 });
 
-// Ripristino di fabbrica
+// Reset di Fabbrica
 cancelResetBtn.addEventListener('click', () => {
   showSettingsView('main');
 });
@@ -2525,9 +2472,7 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
   alert('Dati ripristinati allo stato iniziale sia in locale che su Supabase.');
 });
 
-// ----------------------------------------------------
-// SCORCIATOIE DA TASTIERA
-// ----------------------------------------------------
+// Tastiera
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     if (e.key === 'z' || e.key === 'Z') {
@@ -2582,9 +2527,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// ----------------------------------------------------
-// AVVIO APPLICAZIONE & COLLEGAMENTO EVENTI
-// ----------------------------------------------------
+// Auth & Supabase Realtime
 const authOverlay = document.getElementById('authOverlay');
 const appContent = document.getElementById('appContent');
 const accountUserEmail = document.getElementById('accountUserEmail');
@@ -2596,7 +2539,6 @@ const loginSubmitBtn = document.getElementById('loginSubmitBtn');
 const authErrorMsg = document.getElementById('authErrorMsg');
 const logoutBtn = document.getElementById('logoutBtn');
 
-// Toggle menu Altre Opzioni (•••)
 const moreActionsBtn = document.getElementById('moreActionsBtn');
 const moreDropdownMenu = document.getElementById('moreDropdownMenu');
 
@@ -2704,15 +2646,6 @@ if (logoutBtn) {
   });
 }
 
-// Apri Blocco Volumi dal menu (•••)
-if (openBatchTopBtn) {
-  openBatchTopBtn.addEventListener('click', () => {
-    if (moreDropdownMenu) moreDropdownMenu.classList.remove('open');
-    openBatchModal();
-  });
-}
-
-// Apri Storico dal menu (•••)
 const historyMenuBtn = document.getElementById('historyDropdownBtn');
 if (historyMenuBtn) {
   historyMenuBtn.addEventListener('click', () => {
@@ -2722,7 +2655,7 @@ if (historyMenuBtn) {
 }
 
 function initApp() {
-  document.querySelectorAll('#setTabs .nav-item-btn, #setTabs .segment-btn').forEach(b => {
+  document.querySelectorAll('#setTabs .nav-item-btn').forEach(b => {
     const isSelected = b.dataset.set === activeSet;
     b.classList.toggle('active', isSelected);
     b.setAttribute('aria-selected', String(isSelected));
