@@ -9,8 +9,7 @@ import {
   deleteItemFromSupabase,
   syncCategoriesToSupabase,
   setupRealtimeSubscriptions,
-  formatRowToItem,
-  ensureValidInt4Id
+  formatRowToItem
 } from './supabase.js';
 
 import {
@@ -59,7 +58,6 @@ const DEFAULT_DATA = {
 
 let appData = JSON.parse(localStorage.getItem('collection_data')) || JSON.parse(JSON.stringify(DEFAULT_DATA));
 
-// SANITIZZAZIONE AUTOMATICA: corregge sul nascere tutti i vecchi ID enormi (es. 172886000016)
 let dataNeedsResave = false;
 appData.items.forEach(item => {
   if (!item.id || item.id > 2147483647 || isNaN(parseInt(item.id, 10))) {
@@ -109,7 +107,7 @@ let notificationsEnabled = localStorage.getItem('pref_notifications') === 'true'
 let searchSeriesQuery = '';
 let deletedItemBuffer = null;
 let undoTimeoutId = null;
-let currentOverviewItemId = null;
+let currentActiveSeries = null;
 let inlineHtml5Scanner = null;
 
 const historyUndoStack = [];
@@ -239,6 +237,7 @@ async function ensureItemInVoti(title, category) {
       category: category || 'Generale',
       date: null,
       number: null,
+      isbn: null,
       rating: null,
       unplayed: true,
       purchased: false,
@@ -264,7 +263,6 @@ const timeFilterRow = document.getElementById('timeFilterRow');
 const toggleSortBtn = document.getElementById('toggleSortBtn');
 const sortIndicatorText = document.getElementById('sortIndicatorText');
 
-const searchBarWrap = document.getElementById('searchBarWrap');
 const seriesSearchInput = document.getElementById('seriesSearchInput');
 const clearSearchBtn = document.getElementById('clearSearchBtn');
 
@@ -292,6 +290,23 @@ if (toggleSidebarBtn && twitchSidebar) {
     twitchSidebar.classList.toggle('collapsed');
   });
 }
+
+// Action Sheet 1-Tap Rapida
+const quickActionModalBackdrop = document.getElementById('quickActionModalBackdrop');
+const closeQuickSheetBtn = document.getElementById('closeQuickSheetBtn');
+const quickSheetCategoryTag = document.getElementById('quickSheetCategoryTag');
+const quickSheetTitle = document.getElementById('quickSheetTitle');
+const quickVolMinusBtn = document.getElementById('quickVolMinusBtn');
+const quickVolValue = document.getElementById('quickVolValue');
+const quickVolPlusBtn = document.getElementById('quickVolPlusBtn');
+const quickChapMinusBtn = document.getElementById('quickChapMinusBtn');
+const quickChapValue = document.getElementById('quickChapValue');
+const quickChapPlusBtn = document.getElementById('quickChapPlusBtn');
+const quickToggleReadBtn = document.getElementById('quickToggleReadBtn');
+const quickReadBtnText = document.getElementById('quickReadBtnText');
+const quickOpenShelfBtn = document.getElementById('quickOpenShelfBtn');
+const quickOpenFullEditBtn = document.getElementById('quickOpenFullEditBtn');
+const quickDeleteBtn = document.getElementById('quickDeleteBtn');
 
 // Modale Manga Spine Shelf 3D
 const shelfModalBackdrop = document.getElementById('shelfModalBackdrop');
@@ -329,7 +344,6 @@ const newCategoryInput = document.getElementById('newCategoryInput');
 const existingTitlesList = document.getElementById('existingTitlesList');
 
 // Modale Form Batch
-const openBatchModalBtn = document.getElementById('openBatchModalBtn');
 const openBatchTopBtn = document.getElementById('openBatchTopBtn');
 const batchModalBackdrop = document.getElementById('batchModalBackdrop');
 const closeBatchModalBtn = document.getElementById('closeBatchModalBtn');
@@ -355,19 +369,6 @@ const startScanBtn = document.getElementById('startScanBtn');
 const scannerContainer = document.getElementById('scannerContainer');
 const closeScannerBtn = document.getElementById('closeScannerBtn');
 const scannerStatus = document.getElementById('scannerStatus');
-
-// Modale Panoramica Posseduti
-const overviewModalBackdrop = document.getElementById('overviewModalBackdrop');
-const closeOverviewBtn = document.getElementById('closeOverviewBtn');
-const overviewCategoryTag = document.getElementById('overviewCategoryTag');
-const overviewTitleDisplay = document.getElementById('overviewTitleDisplay');
-const overviewVolumeDisplay = document.getElementById('overviewVolumeDisplay');
-const overviewGapPill = document.getElementById('overviewGapPill');
-const overviewGapDisplay = document.getElementById('overviewGapDisplay');
-const overviewReadingProgressInput = document.getElementById('overviewReadingProgressInput');
-const overviewCommentInput = document.getElementById('overviewCommentInput');
-const overviewEditFullBtn = document.getElementById('overviewEditFullBtn');
-const saveOverviewDetailsBtn = document.getElementById('saveOverviewDetailsBtn');
 
 // Modale Statistiche
 const openStatsBtn = document.getElementById('openStatsBtn');
@@ -766,6 +767,9 @@ function renderPossedutiAggregatedLayout(items) {
   });
 }
 
+// ----------------------------------------------------
+// CARD PULITA E MINIMALE PER POSSEDUTI
+// ----------------------------------------------------
 function createPossedutiAggregatedCard(series) {
   const item = series.representativeItem;
   const card = document.createElement('div');
@@ -778,16 +782,20 @@ function createPossedutiAggregatedCard(series) {
   card.className = `item-card ${statusClass}`;
 
   const gapBadgeHtml = hasGaps 
-    ? `<span class="gap-badge clickable-gap" title="Clicca per vedere i volumi mancanti">⚠️ Mancano ${series.missingGaps.length} vol.</span>` 
+    ? `<span class="gap-badge" title="Mancano volumi nella sequenza">⚠️ Mancano ${series.missingGaps.length}</span>` 
     : '';
 
   const variantBadgeHtml = series.variantCount > 0 
-    ? `<span class="foil-sparkle-badge" title="${series.variantCount} Variant possedute">★ ${series.variantCount}</span>` 
+    ? `<span class="foil-sparkle-badge">★ ${series.variantCount}</span>` 
     : '';
 
   const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
   const readBadgeClass = item.isRead ? '' : 'is-unread';
-  const readHtml = `<span class="read-badge ${readBadgeClass}" title="Stato lettura">${item.isRead ? 'Letto' : 'In corso'}</span>`;
+  const readHtml = `<span class="read-badge ${readBadgeClass}">${item.isRead ? 'Letto' : 'In corso'}</span>`;
+
+  const readingSubtitle = item.readingChapter 
+    ? `· Cap. <span class="reading-pill-highlight">${escapeHtml(item.readingChapter)}</span>` 
+    : '';
 
   card.innerHTML = `
     <div class="card-left-section">
@@ -798,96 +806,246 @@ function createPossedutiAggregatedCard(series) {
           ${readHtml}
           ${variantBadgeHtml}
         </div>
-        <span class="item-name item-name-clickable" title="Clicca per aprire lo scaffale 3D della collana">${escapeHtml(item.title)}</span>
-        <div class="chapter-stepper-wrap" title="Avanzamento rapido capitolo letto">
-          <span class="chapter-stepper-label">Cap:</span>
-          <button type="button" class="chapter-step-btn step-minus" aria-label="Capitolo precedente">-</button>
-          <span class="chapter-stepper-val" title="Clicca per inserire il capitolo a mano">${escapeHtml(item.readingChapter || '0')}</span>
-          <button type="button" class="chapter-step-btn step-plus" aria-label="Capitolo successivo">+</button>
-          <button type="button" class="chapter-edit-pencil" title="Inserisci capitolo esatto a mano">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
-              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-            </svg>
-          </button>
+        <span class="item-name">${escapeHtml(item.title)}</span>
+        <div class="item-meta-subtitle">
+          <span>Posseduti: <strong>${series.regularCount}</strong></span>
+          ${readingSubtitle}
         </div>
       </div>
     </div>
 
     <div class="card-right-section">
       ${gapBadgeHtml}
-      <div class="volume-stepper-wrap" title="Ultimo volume posseduto">
-        <button type="button" class="vol-step-btn vol-step-minus" aria-label="Volume precedente">-</button>
-        <span class="item-num">#${escapeHtml(series.maxNumber)}</span>
-        <button type="button" class="vol-step-btn vol-step-plus" aria-label="Volume successivo">+</button>
-      </div>
-      <div class="card-actions">
-        <button class="icon-btn shelf-open-btn" title="Apri scaffale 3D" type="button">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/>
-          </svg>
-        </button>
-        <button class="icon-btn edit-btn" title="Modifica" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-          </svg>
-        </button>
-        <button class="icon-btn delete-btn delete-series-btn" title="Elimina volume o serie" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-          </svg>
-        </button>
-      </div>
+      <span class="item-num">#${escapeHtml(series.maxNumber)}</span>
     </div>
   `;
 
-  const gapBtn = card.querySelector('.clickable-gap');
-  if (gapBtn) {
-    gapBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      showGapsDetailModal(item.title, series.missingGaps, item.category);
-    });
-  }
-
-  const shelfBtn = card.querySelector('.shelf-open-btn');
-  const nameBtn = card.querySelector('.item-name');
-  [shelfBtn, nameBtn].forEach(btn => {
-    if (btn) {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openMangaShelf3D(item.title, item.category);
-      });
-    }
+  // Con 1 solo tocco si apre il pannello d'azione rapido
+  card.addEventListener('click', () => {
+    openQuickActionSheet(series);
   });
-
-  const stepMinus = card.querySelector('.step-minus');
-  const stepPlus = card.querySelector('.step-plus');
-  const chapVal = card.querySelector('.chapter-stepper-val');
-  const chapPencil = card.querySelector('.chapter-edit-pencil');
-
-  if (stepMinus) stepMinus.addEventListener('click', (e) => { e.stopPropagation(); updateChapterStep(item.id, -1); });
-  if (stepPlus) stepPlus.addEventListener('click', (e) => { e.stopPropagation(); updateChapterStep(item.id, 1); });
-  if (chapVal) chapVal.addEventListener('click', (e) => { e.stopPropagation(); setManualChapter(item.id); });
-  if (chapPencil) chapPencil.addEventListener('click', (e) => { e.stopPropagation(); setManualChapter(item.id); });
-
-  const volMinus = card.querySelector('.vol-step-minus');
-  const volPlus = card.querySelector('.vol-step-plus');
-  if (volMinus) volMinus.addEventListener('click', (e) => { e.stopPropagation(); updateVolumeStep(item.id, -1); });
-  if (volPlus) volPlus.addEventListener('click', (e) => { e.stopPropagation(); updateVolumeStep(item.id, 1); });
-
-  card.querySelector('.edit-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    openOverviewModal(item);
-  });
-
-  const delBtn = card.querySelector('.delete-series-btn');
-  if (delBtn) {
-    delBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      handleDeletePossedutiPrompt(series);
-    });
-  }
 
   return card;
+}
+
+// ----------------------------------------------------
+// CARD PULITA PER ACQUISTI, VOTI E LISTE
+// ----------------------------------------------------
+function createItemCard(item, isCompact, medalIcon = null) {
+  const card = document.createElement('div');
+  card.dataset.id = item.id;
+  const catName = escapeHtml(item.category || 'Generale');
+  const catColor = getCategoryColor(item.category || 'Generale');
+  const dateInfo = getDateStatus(item.date);
+
+  const isVariant = Boolean(item.isVariant || (item.number && String(item.number).toLowerCase().includes('variant')));
+  const foilClass = isVariant ? 'foil-hologram' : '';
+
+  const statusClass = (item.set === 'Acquisti') ? dateInfo.colorClass : '';
+  const compactClass = isCompact ? 'compact-purchased' : '';
+  card.className = `item-card ${statusClass} ${compactClass} ${foilClass}`;
+
+  let checkHtml = '';
+  if (item.set === 'Acquisti') {
+    checkHtml = `
+      <button type="button" class="check-btn ${item.purchased ? 'checked' : ''}" aria-label="${item.purchased ? 'Segna da comprare' : 'Segna come acquistato'}">
+        <div class="custom-checkbox">
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+          </svg>
+        </div>
+      </button>
+    `;
+  }
+
+  let dateBadgeHtml = '';
+  if (item.set === 'Acquisti' && item.date) {
+    const badgeClass = dateInfo.badgeType === 'today' ? 'badge-today' :
+                       dateInfo.badgeType === 'yesterday' ? 'badge-yesterday' :
+                       dateInfo.badgeType === 'countdown' ? 'badge-countdown' : '';
+    dateBadgeHtml = `<span class="date-badge ${badgeClass}">${escapeHtml(dateInfo.badgeText)}</span>`;
+  }
+
+  let mainValueHtml = '';
+  if (item.number) {
+    mainValueHtml = `<span class="item-num">#${escapeHtml(item.number)}</span>`;
+  }
+
+  if (item.set === 'Voti') {
+    if (item.unplayed) {
+      mainValueHtml = `
+        <span class="unplayed-badge">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+            <path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/>
+          </svg>
+          Da iniziare
+        </span>
+      `;
+    } else if (item.rating !== null && item.rating !== undefined) {
+      const scoreClass = getScoreBadgeClass(item.rating);
+      const medalHtml = medalIcon ? `<span>${medalIcon}</span> ` : '';
+      mainValueHtml = `${medalHtml}<span class="score-badge-100 ${scoreClass}">${item.rating}/100</span>`;
+    }
+  }
+
+  const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
+  const foilBadgeHtml = isVariant ? `<span class="foil-sparkle-badge">★ Variant</span>` : '';
+
+  card.innerHTML = `
+    <div class="card-left-section">
+      ${checkHtml}
+      <div class="item-main-details">
+        <div class="item-tags-row">
+          <span class="item-tag-inline" style="color: ${catColor};">${catName}</span>
+          ${completedHtml}
+          ${foilBadgeHtml}
+        </div>
+        <span class="item-name">${escapeHtml(item.title)}</span>
+      </div>
+    </div>
+
+    <div class="card-right-section">
+      ${dateBadgeHtml}
+      ${mainValueHtml}
+    </div>
+  `;
+
+  if (item.set === 'Acquisti') {
+    card.querySelector('.check-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const prev = { ...item };
+      item.purchased = !item.purchased;
+
+      pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
+
+      saveData();
+      syncItemToSupabase(item, saveData);
+
+      if (item.purchased) {
+        syncPurchasedWithPosseduti(item);
+      } else {
+        rollbackPurchasedFromPosseduti(item);
+      }
+
+      renderList();
+    });
+  }
+
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.check-btn')) return;
+    openEditModal(item);
+  });
+
+  return card;
+}
+
+// ----------------------------------------------------
+// GESTIONE ACTION SHEET RAPIDA 1-TAP (POSSEDUTI)
+// ----------------------------------------------------
+function openQuickActionSheet(series) {
+  currentActiveSeries = series;
+  const item = series.representativeItem;
+
+  quickSheetTitle.textContent = item.title;
+  quickSheetCategoryTag.textContent = item.category || 'Generale';
+  quickSheetCategoryTag.style.color = getCategoryColor(item.category || 'Generale');
+
+  quickVolValue.textContent = `#${series.maxNumber}`;
+  quickChapValue.textContent = item.readingChapter || '0';
+  quickReadBtnText.textContent = item.isRead ? 'Segna da Leggere' : 'Segna come Letto';
+
+  quickActionModalBackdrop.classList.add('active');
+}
+
+function closeQuickActionSheet() {
+  quickActionModalBackdrop.classList.remove('active');
+  currentActiveSeries = null;
+}
+
+if (closeQuickSheetBtn) closeQuickSheetBtn.addEventListener('click', closeQuickActionSheet);
+if (quickActionModalBackdrop) {
+  quickActionModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === quickActionModalBackdrop) closeQuickActionSheet();
+  });
+}
+
+// Incremento/Decremento rapido Volume
+if (quickVolPlusBtn) {
+  quickVolPlusBtn.addEventListener('click', async () => {
+    if (!currentActiveSeries) return;
+    const item = currentActiveSeries.representativeItem;
+    await updateVolumeStep(item.id, 1);
+    quickVolValue.textContent = `#${item.number}`;
+  });
+}
+
+if (quickVolMinusBtn) {
+  quickVolMinusBtn.addEventListener('click', async () => {
+    if (!currentActiveSeries) return;
+    const item = currentActiveSeries.representativeItem;
+    await updateVolumeStep(item.id, -1);
+    quickVolValue.textContent = `#${item.number}`;
+  });
+}
+
+// Incremento/Decremento rapido Capitolo
+if (quickChapPlusBtn) {
+  quickChapPlusBtn.addEventListener('click', async () => {
+    if (!currentActiveSeries) return;
+    const item = currentActiveSeries.representativeItem;
+    await updateChapterStep(item.id, 1);
+    quickChapValue.textContent = item.readingChapter || '0';
+  });
+}
+
+if (quickChapMinusBtn) {
+  quickChapMinusBtn.addEventListener('click', async () => {
+    if (!currentActiveSeries) return;
+    const item = currentActiveSeries.representativeItem;
+    await updateChapterStep(item.id, -1);
+    quickChapValue.textContent = item.readingChapter || '0';
+  });
+}
+
+// Toggle stato lettura
+if (quickToggleReadBtn) {
+  quickToggleReadBtn.addEventListener('click', async () => {
+    if (!currentActiveSeries) return;
+    const item = currentActiveSeries.representativeItem;
+    await toggleReadStatus(item.id);
+    quickReadBtnText.textContent = item.isRead ? 'Segna da Leggere' : 'Segna come Letto';
+  });
+}
+
+// Apri Scaffale 3D
+if (quickOpenShelfBtn) {
+  quickOpenShelfBtn.addEventListener('click', () => {
+    if (!currentActiveSeries) return;
+    const title = currentActiveSeries.representativeItem.title;
+    const cat = currentActiveSeries.representativeItem.category;
+    closeQuickActionSheet();
+    openMangaShelf3D(title, cat);
+  });
+}
+
+// Apri Modifica Completa
+if (quickOpenFullEditBtn) {
+  quickOpenFullEditBtn.addEventListener('click', () => {
+    if (!currentActiveSeries) return;
+    const item = currentActiveSeries.representativeItem;
+    closeQuickActionSheet();
+    openEditModal(item);
+  });
+}
+
+// Elimina da Action Sheet
+if (quickDeleteBtn) {
+  quickDeleteBtn.addEventListener('click', () => {
+    if (!currentActiveSeries) return;
+    const s = currentActiveSeries;
+    closeQuickActionSheet();
+    handleDeletePossedutiPrompt(s);
+  });
 }
 
 async function handleDeletePossedutiPrompt(series) {
@@ -922,41 +1080,6 @@ async function handleDeletePossedutiPrompt(series) {
       renderList();
       showToastNotice(`Cancellata l'intera serie "${title}"`);
     }
-  }
-}
-
-function showGapsDetailModal(seriesTitle, missingNumbers, category) {
-  const missingStr = missingNumbers.map(n => `#${n}`).join(', ');
-  const shouldAdd = confirm(
-    `Per "${seriesTitle}" mancano i seguenti volumi:\n${missingStr}\n\nVuoi aggiungere questi volumi mancanti alla tua lista Acquisti?`
-  );
-
-  if (shouldAdd) {
-    const newItems = missingNumbers.map(n => ({
-      id: generateUniqueId(),
-      title: seriesTitle,
-      set: 'Acquisti',
-      category: category || 'Generale',
-      date: null,
-      number: String(n),
-      rating: null,
-      unplayed: false,
-      purchased: false,
-      completed: false,
-      isRead: false,
-      isVariant: false,
-      missingGapNotice: null,
-      readingChapter: '',
-      privateComment: '',
-      createdAt: new Date().toISOString()
-    }));
-
-    appData.items.unshift(...newItems);
-    pushHistoryAction({ type: 'INSERT', data: newItems.map(i => ({ ...i })) });
-    saveData();
-    syncBatchItemsToSupabase(newItems);
-    renderList();
-    showToastNotice(`Aggiunti ${newItems.length} volumi mancanti agli Acquisti!`);
   }
 }
 
@@ -1056,53 +1179,9 @@ async function updateChapterStep(itemId, delta) {
   item.readingChapter = updatedString;
   pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
 
-  const card = document.querySelector(`.item-card[data-id="${itemId}"]`);
-  if (card) {
-    const valSpan = card.querySelector('.chapter-stepper-val');
-    if (valSpan) valSpan.textContent = updatedString || '0';
-  }
-
   saveData();
   await syncItemToSupabase(item, saveData);
-}
-
-async function setManualChapter(itemId) {
-  const item = appData.items.find(i => i.id === itemId);
-  if (!item) return;
-
-  const currentStr = String(item.readingChapter || '0').trim();
-  const currentNumMatch = currentStr.match(/\d+/);
-  const currentVal = currentNumMatch ? currentNumMatch[0] : '0';
-
-  const inputVal = prompt(`A che capitolo sei arrivato per "${item.title}"?`, currentVal);
-  if (inputVal === null) return;
-
-  const parsed = parseInt(inputVal.trim(), 10);
-  if (isNaN(parsed) || parsed < 0) {
-    alert("Inserisci un numero di capitolo valido (maggiore o uguale a 0).");
-    return;
-  }
-
-  const prev = { ...item };
-  let updatedString = '';
-  if (currentStr && isNaN(Number(currentStr))) {
-    updatedString = currentStr.replace(/\d+/, String(parsed));
-  } else {
-    updatedString = String(parsed);
-  }
-
-  item.readingChapter = updatedString;
-  pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
-
-  const card = document.querySelector(`.item-card[data-id="${itemId}"]`);
-  if (card) {
-    const valSpan = card.querySelector('.chapter-stepper-val');
-    if (valSpan) valSpan.textContent = updatedString;
-  }
-
-  saveData();
-  await syncItemToSupabase(item, saveData);
-  showToastNotice(`Capitolo di "${item.title}" impostato a ${parsed}`);
+  renderList();
 }
 
 async function updateVolumeStep(itemId, delta) {
@@ -1206,167 +1285,176 @@ function showToastNotice(message) {
   }, 4500);
 }
 
-function createItemCard(item, isCompact, medalIcon = null) {
-  const card = document.createElement('div');
-  card.dataset.id = item.id;
-  const catName = escapeHtml(item.category || 'Generale');
-  const catColor = getCategoryColor(item.category || 'Generale');
-  const dateInfo = getDateStatus(item.date);
+// ----------------------------------------------------
+// SCAFFALE COSTE 3D
+// ----------------------------------------------------
+function openMangaShelf3D(seriesTitle, category) {
+  shelfSeriesTitle.textContent = seriesTitle;
+  shelfCategoryTag.textContent = category || 'Generale';
+  shelfCategoryTag.style.color = getCategoryColor(category || 'Generale');
 
-  const isVariant = Boolean(item.isVariant || (item.number && String(item.number).toLowerCase().includes('variant')));
-  const foilClass = isVariant ? 'foil-hologram' : '';
+  shelfSpineContainer.innerHTML = '';
 
-  const statusClass = (item.set === 'Acquisti') ? dateInfo.colorClass : '';
-  const compactClass = isCompact ? 'compact-purchased' : '';
-  card.className = `item-card ${statusClass} ${compactClass} ${foilClass}`;
+  const ownedSeriesVolumes = appData.items.filter(i => 
+    i.set === 'Posseduti' && 
+    i.title.toLowerCase() === seriesTitle.toLowerCase()
+  );
 
-  let checkHtml = '';
-  if (item.set === 'Acquisti') {
-    checkHtml = `
-      <button type="button" class="check-btn ${item.purchased ? 'checked' : ''}" aria-label="${item.purchased ? 'Segna come da acquistare' : 'Segna come acquistato'}" title="${item.purchased ? 'Segna come da acquistare' : 'Segna come acquistato'}">
-        <div class="custom-checkbox">
-          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
-            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
-          </svg>
-        </div>
-      </button>
-    `;
-  }
+  const regularVols = ownedSeriesVolumes.filter(v => !v.isVariant);
+  const variantVols = ownedSeriesVolumes.filter(v => v.isVariant);
 
-  let dateBadgeHtml = '';
-  if (item.set === 'Acquisti' && item.date) {
-    const badgeClass = dateInfo.badgeType === 'today' ? 'badge-today' :
-                       dateInfo.badgeType === 'yesterday' ? 'badge-yesterday' :
-                       dateInfo.badgeType === 'countdown' ? 'badge-countdown' : '';
-    dateBadgeHtml = `<span class="date-badge ${badgeClass}">${escapeHtml(dateInfo.badgeText)}</span>`;
-  }
+  const ownedNumbersMap = new Map();
+  regularVols.forEach(it => {
+    const n = parseInt(it.number, 10);
+    if (!isNaN(n)) ownedNumbersMap.set(n, it);
+  });
 
-  let mainValueHtml = '';
-  if (item.set === 'Acquisti' || item.set === 'Liste') {
-    if (item.number) {
-      mainValueHtml = `<span class="item-num">#${escapeHtml(item.number)}</span>`;
-    }
-  } else if (item.set === 'Posseduti') {
-    mainValueHtml = `<span class="item-num">#${escapeHtml(item.number || '1')}</span>`;
-  } else if (item.set === 'Voti') {
-    if (item.unplayed) {
-      mainValueHtml = `
-        <span class="unplayed-badge" title="Non ancora letto o giocato">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-            <path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/>
-          </svg>
-          Da iniziare
-        </span>
+  const numbers = Array.from(ownedNumbersMap.keys()).sort((a, b) => a - b);
+  const minVol = numbers.length > 0 ? Math.min(1, numbers[0]) : 1;
+  const maxVol = numbers.length > 0 ? Math.max(...numbers) : 1;
+
+  const spineColor = getCategoryColor(category);
+
+  for (let v = minVol; v <= maxVol; v++) {
+    const ownedItem = ownedNumbersMap.get(v);
+
+    if (ownedItem) {
+      const spine = document.createElement('div');
+      spine.className = 'manga-spine';
+      spine.style.backgroundColor = spineColor;
+
+      spine.innerHTML = `
+        <span class="spine-vol-num">#${v}</span>
+        <span class="spine-title-vertical">${escapeHtml(seriesTitle)}</span>
+        <span style="font-size: 0.6rem; font-weight: 800; color: rgba(255,255,255,0.7);">VOL</span>
       `;
-    } else if (item.rating !== null && item.rating !== undefined) {
-      const scoreClass = getScoreBadgeClass(item.rating);
-      const medalHtml = medalIcon ? `<span class="medal-badge">${medalIcon}</span>` : '';
-      mainValueHtml = `${medalHtml}<span class="score-badge-100 ${scoreClass}">${item.rating}/100</span>`;
-    }
-  }
 
-  let nextVolHtml = '';
-  if (item.set === 'Acquisti' && item.number && !isNaN(parseInt(item.number, 10)) && !item.completed) {
-    nextVolHtml = `<button class="icon-btn next-btn" title="Crea volume successivo (+1)" type="button">+1</button>`;
-  }
+      spine.addEventListener('click', () => {
+        closeShelfModal();
+        openEditModal(ownedItem);
+      });
 
-  const completedHtml = item.completed ? `<span class="completed-badge">Fine</span>` : '';
-  const readBadgeClass = item.isRead ? '' : 'is-unread';
-  const readHtml = item.set === 'Posseduti' 
-    ? `<span class="read-badge ${readBadgeClass}" title="Clicca per cambiare stato">${item.isRead ? 'Letto' : 'Non letto'}</span>` 
-    : '';
-  const foilBadgeHtml = isVariant ? `<span class="foil-sparkle-badge">★ Variant</span>` : '';
-
-  card.innerHTML = `
-    <div class="card-left-section">
-      ${checkHtml}
-      <div class="item-main-details">
-        <div class="item-tags-row">
-          <span class="item-tag-inline" style="color: ${catColor};">${catName}</span>
-          ${completedHtml}
-          ${readHtml}
-          ${foilBadgeHtml}
-        </div>
-        <span class="item-name">${escapeHtml(item.title)}</span>
-      </div>
-    </div>
-
-    <div class="card-right-section">
-      ${dateBadgeHtml}
-      ${mainValueHtml}
-      ${nextVolHtml}
-      <div class="card-actions">
-        <button class="icon-btn edit-btn" title="Modifica" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-          </svg>
-        </button>
-        <button class="icon-btn delete-btn" title="Elimina" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-  `;
-
-  const readBadgeElem = card.querySelector('.read-badge');
-  if (readBadgeElem) {
-    readBadgeElem.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleReadStatus(item.id);
-    });
-  }
-
-  card.addEventListener('click', (e) => {
-    if (e.target.closest('.check-btn') || e.target.closest('.icon-btn') || e.target.closest('.read-badge')) return;
-    if (item.set === 'Posseduti') {
-      openOverviewModal(item);
+      shelfSpineContainer.appendChild(spine);
     } else {
-      openEditModal(item);
+      const ghost = document.createElement('div');
+      ghost.className = 'manga-spine missing-ghost';
+      ghost.title = `Volume #${v} mancante! Clicca per aggiungerlo ad Acquisti`;
+
+      ghost.innerHTML = `
+        <span class="spine-vol-num" style="border-color: #f59e0b; color: #f59e0b;">#${v}</span>
+        <span class="spine-ghost-label">+ Prendi</span>
+      `;
+
+      ghost.addEventListener('click', () => {
+        if (confirm(`Aggiungere "${seriesTitle} #${v}" alla lista Acquisti?`)) {
+          const newItem = {
+            id: generateUniqueId(),
+            title: seriesTitle,
+            set: 'Acquisti',
+            category: category || 'Generale',
+            date: null,
+            number: String(v),
+            isbn: null,
+            rating: null,
+            unplayed: false,
+            purchased: false,
+            completed: false,
+            isRead: false,
+            isVariant: false,
+            missingGapNotice: null,
+            readingChapter: '',
+            privateComment: '',
+            createdAt: new Date().toISOString()
+          };
+          appData.items.unshift(newItem);
+          pushHistoryAction({ type: 'INSERT', data: { ...newItem } });
+          saveData();
+          syncItemToSupabase(newItem, saveData);
+          closeShelfModal();
+          renderList();
+          showToastNotice(`"${seriesTitle} #${v}" aggiunto ad Acquisti!`);
+        }
+      });
+
+      shelfSpineContainer.appendChild(ghost);
+    }
+  }
+
+  if (variantVols.length > 0) {
+    const divider = document.createElement('div');
+    divider.style.width = '100%';
+    divider.style.padding = '12px 4px 6px';
+    divider.style.fontSize = '0.78rem';
+    divider.style.fontWeight = '800';
+    divider.style.color = 'var(--accent-cyan)';
+    divider.textContent = `★ Edizioni Variant (${variantVols.length})`;
+    shelfSpineContainer.appendChild(divider);
+
+    variantVols.forEach(vItem => {
+      const vSpine = document.createElement('div');
+      vSpine.className = 'manga-spine foil-hologram';
+      vSpine.style.backgroundColor = '#181a20';
+
+      vSpine.innerHTML = `
+        <span class="spine-vol-num" style="border-color: #fbbf24; color: #fbbf24;">#${escapeHtml(vItem.number || 'V')}</span>
+        <span class="spine-title-vertical">${escapeHtml(seriesTitle)} [Variant]</span>
+        <span class="foil-sparkle-badge" style="transform: rotate(90deg); margin-bottom: 8px;">VAR</span>
+      `;
+
+      vSpine.addEventListener('click', () => {
+        closeShelfModal();
+        openEditModal(vItem);
+      });
+
+      shelfSpineContainer.appendChild(vSpine);
+    });
+  }
+
+  shelfModalBackdrop.classList.add('active');
+}
+
+function closeShelfModal() {
+  shelfModalBackdrop.classList.remove('active');
+}
+
+if (closeShelfModalBtn) closeShelfModalBtn.addEventListener('click', closeShelfModal);
+if (shelfModalBackdrop) {
+  shelfModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === shelfModalBackdrop) closeShelfModal();
+  });
+}
+
+function deleteItemWithUndo(item) {
+  pushHistoryAction({ type: 'DELETE', data: { ...item } });
+  deletedItemBuffer = { ...item };
+  appData.items = appData.items.filter(i => i.id !== item.id);
+  saveData();
+  deleteItemFromSupabase(item.id);
+  renderList();
+
+  undoBtn.style.display = 'inline-block';
+  undoToastMsg.textContent = `"${item.title}" eliminato`;
+  undoToast.classList.add('show');
+
+  if (undoTimeoutId) clearTimeout(undoTimeoutId);
+  undoTimeoutId = setTimeout(() => {
+    undoToast.classList.remove('show');
+    deletedItemBuffer = null;
+  }, 5000);
+}
+
+if (undoBtn) {
+  undoBtn.addEventListener('click', () => {
+    if (deletedItemBuffer) {
+      appData.items.unshift(deletedItemBuffer);
+      saveData();
+      syncItemToSupabase(deletedItemBuffer, saveData);
+      renderList();
+      deletedItemBuffer = null;
+      undoToast.classList.remove('show');
+      if (undoTimeoutId) clearTimeout(undoTimeoutId);
     }
   });
-
-  if (item.set === 'Acquisti') {
-    card.querySelector('.check-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      const prev = { ...item };
-      item.purchased = !item.purchased;
-
-      pushHistoryAction({ type: 'UPDATE', prev: prev, next: { ...item } });
-
-      saveData();
-      syncItemToSupabase(item, saveData);
-
-      if (item.purchased) {
-        syncPurchasedWithPosseduti(item);
-      } else {
-        rollbackPurchasedFromPosseduti(item);
-      }
-
-      renderList();
-    });
-  }
-
-  const nextBtn = card.querySelector('.next-btn');
-  if (nextBtn) {
-    nextBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      createNextVolume(item);
-    });
-  }
-
-  card.querySelector('.edit-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    openEditModal(item);
-  });
-
-  card.querySelector('.delete-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    deleteItemWithUndo(item);
-  });
-
-  return card;
 }
 
 function populateFormCategories() {
@@ -1506,7 +1594,7 @@ modalBackdrop.addEventListener('click', (e) => {
 });
 
 // ----------------------------------------------------
-// SALVATAGGIO FORM CON CONTROLLO DUPLICATI E INT4 ID
+// SALVATAGGIO FORM CON CONTROLLO DUPLICATI
 // ----------------------------------------------------
 itemForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1608,6 +1696,7 @@ itemForm.addEventListener('submit', (e) => {
       category,
       date,
       number,
+      isbn: null,
       completed,
       isRead: isReadChecked,
       rating,
@@ -1673,7 +1762,7 @@ window.addEventListener('keydown', (e) => {
       closeBatchModal();
       stopCheckerModal();
       closeShelfModal();
-      closeOverviewModal();
+      closeQuickActionSheet();
       closeSettingsModal();
       if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
       if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
@@ -1695,7 +1784,7 @@ window.addEventListener('keydown', (e) => {
     closeBatchModal();
     stopCheckerModal();
     closeShelfModal();
-    closeOverviewModal();
+    closeQuickActionSheet();
     closeSettingsModal();
     if (statsModalBackdrop) statsModalBackdrop.classList.remove('active');
     if (fullHistoryModalBackdrop) fullHistoryModalBackdrop.classList.remove('active');
@@ -1909,9 +1998,7 @@ confirmExportBtn.addEventListener('click', () => {
   closeSettingsModal();
 });
 
-// ----------------------------------------------------
-// IMPORTAZIONE JSON TOLLERANTE
-// ----------------------------------------------------
+// Importazione JSON
 triggerImportBtn.addEventListener('click', () => {
   importJsonFileInput.click();
 });
@@ -1930,7 +2017,7 @@ importJsonFileInput.addEventListener('change', (e) => {
         : (importedData && Array.isArray(importedData.items) ? importedData.items : null);
 
       if (!itemsList) {
-        alert('Formato file non valido: impossibile trovare la lista degli elementi.');
+        alert('Formato file non valido.');
         return;
       }
 
@@ -2095,6 +2182,21 @@ const loginSubmitBtn = document.getElementById('loginSubmitBtn');
 const authErrorMsg = document.getElementById('authErrorMsg');
 const logoutBtn = document.getElementById('logoutBtn');
 
+// Toggle menu Altre Opzioni (•••)
+const moreActionsBtn = document.getElementById('moreActionsBtn');
+const moreDropdownMenu = document.getElementById('moreDropdownMenu');
+
+if (moreActionsBtn && moreDropdownMenu) {
+  moreActionsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    moreDropdownMenu.classList.toggle('open');
+  });
+
+  document.addEventListener('click', () => {
+    moreDropdownMenu.classList.remove('open');
+  });
+}
+
 async function fetchDataFromSupabase() {
   if (!supabaseClient || !currentUser) return;
 
@@ -2185,6 +2287,23 @@ if (logoutBtn) {
       closeSettingsModal();
       await supabaseClient.auth.signOut();
     }
+  });
+}
+
+// Apri Blocco Volumi dal menu (•••)
+if (openBatchTopBtn) {
+  openBatchTopBtn.addEventListener('click', () => {
+    if (moreDropdownMenu) moreDropdownMenu.classList.remove('open');
+    openBatchModal();
+  });
+}
+
+// Apri Storico dal menu (•••)
+const historyMenuBtn = document.getElementById('historyDropdownBtn');
+if (historyMenuBtn) {
+  historyMenuBtn.addEventListener('click', () => {
+    if (moreDropdownMenu) moreDropdownMenu.classList.remove('open');
+    openFullHistoryModal();
   });
 }
 
