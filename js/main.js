@@ -743,9 +743,11 @@ function renderPossedutiAggregatedLayout(items) {
     const highestVolItem = regularVols.length > 0 ? regularVols[regularVols.length - 1] : vols[0];
     const missingGaps = calculateMissingGaps(regularVols);
 
-    const validNumbers = regularVols
-      .map(v => parseInt(v.number, 10))
-      .filter(n => !isNaN(n));
+    const validNumbers = [...new Set(
+      regularVols
+        .map(v => parseInt(v.number, 10))
+        .filter(n => !isNaN(n))
+    )].sort((a, b) => a - b);
 
     aggregatedSeriesList.push({
       representativeItem: highestVolItem,
