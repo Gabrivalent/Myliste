@@ -10,13 +10,13 @@
 
 /* SMARTPHONE (<= 768px) */
 @media (max-width: 768px) {
-  /* 1. Layout generale: Spazio per la Bottom Bar */
+  /* 1. Spazio per la Bottom Bar ancorata in basso */
   .site-layout {
     flex-direction: column;
-    padding-bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   }
 
-  /* 2. Trasformazione Sidebar Desktop in Bottom Bar Mobile Nativa */
+  /* 2. Bottom Navigation Bar Mobile con Scanner Centrale */
   .twitch-sidebar {
     position: fixed;
     bottom: 0;
@@ -24,14 +24,14 @@
     right: 0;
     top: auto;
     width: 100%;
-    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    height: calc(58px + env(safe-area-inset-bottom, 0px));
     background: rgba(18, 20, 26, 0.96);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     border-right: none;
     border-bottom: none;
-    padding: 2px 6px env(safe-area-inset-bottom, 0px);
+    padding: 2px 4px env(safe-area-inset-bottom, 0px);
     z-index: 300;
     display: flex;
     flex-direction: row;
@@ -39,11 +39,10 @@
     justify-content: space-around;
   }
 
-  /* Nascondi header sidebar e comandi non adatti alla barra inferiore */
   .sidebar-header,
   .sidebar-section-title,
   .collapse-toggle-btn,
-  .sidebar-footer .highlight-scan-nav {
+  .sidebar-footer {
     display: none !important;
   }
 
@@ -51,16 +50,8 @@
     display: flex;
     flex-direction: row;
     width: 100%;
-    justify-content: space-around;
+    justify-content: space-between;
     align-items: center;
-    gap: 0;
-  }
-
-  .sidebar-footer {
-    display: flex;
-    flex-direction: row;
-    border-top: none;
-    padding: 0;
     gap: 0;
   }
 
@@ -74,20 +65,55 @@
     font-weight: 600;
     color: var(--text-dim);
     border-radius: 8px;
-    min-width: 48px;
+    min-width: 52px;
     background: transparent !important;
   }
 
   .nav-item-btn .nav-icon svg {
-    width: 19px;
-    height: 19px;
+    width: 18px;
+    height: 18px;
   }
 
   .nav-item-btn.active {
     color: var(--accent-cyan);
   }
 
-  /* 3. Area Contenuti & Top Bar Mobile */
+  /* TASTO SCANNER CENTRALE IN RILIEVO */
+  .center-scan-btn {
+    position: relative;
+    top: -12px;
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-icon-center {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
+    color: #0b1120;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(56, 189, 248, 0.45);
+    border: 3px solid #0d0e12;
+    transition: transform 0.15s ease;
+  }
+
+  .center-scan-btn:active .nav-icon-center {
+    transform: scale(0.92);
+  }
+
+  .center-scan-btn .nav-label {
+    margin-top: 1px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+  }
+
+  /* 3. Area Contenuti Mobile */
   .main-content-area {
     padding: 0.75rem 0.75rem 1rem;
     gap: 0.65rem;
@@ -105,15 +131,7 @@
     font-size: 0.85rem;
   }
 
-  .btn-text-desktop {
-    display: none; /* Mostra solo l'icona nello scanner per compattare */
-  }
-
-  .action-pill-btn.accent-scan {
-    padding: 0.5rem 0.6rem;
-  }
-
-  /* 4. Griglia Card Mobile a 1 Colonna */
+  /* 4. Card Griglia a 1 Colonna su Smartphone */
   .cards-flow {
     grid-template-columns: 1fr;
     gap: 0.45rem;
@@ -135,15 +153,15 @@
 
   /* 5. Pulsante Flottante (+) riposizionato sopra la Bottom Bar */
   .fab-btn {
-    bottom: calc(66px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
     right: 1rem;
-    width: 50px;
-    height: 50px;
+    width: 48px;
+    height: 48px;
     border-radius: 14px;
     box-shadow: 0 6px 18px rgba(14, 165, 233, 0.4);
   }
 
-  /* 6. Action Sheet e Modali: Adattamento Bottom-Sheet per Mobile */
+  /* 6. Action Sheet e Modali da Fondo Schermo */
   .quick-action-sheet {
     max-width: 100%;
     margin-top: auto;
@@ -153,7 +171,7 @@
   }
 
   .modal-backdrop {
-    align-items: flex-end; /* I modali si aprono dal basso come schede native */
+    align-items: flex-end;
     padding: 0;
   }
 
@@ -166,5 +184,12 @@
   .shelf-modal-card {
     border-radius: 14px;
     margin: 1rem;
+  }
+}
+
+/* Su Desktop nascondiamo il tasto centrale dello scanner nella sidebar */
+@media (min-width: 769px) {
+  .center-scan-btn {
+    display: none !important;
   }
 }
