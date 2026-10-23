@@ -26,7 +26,6 @@ export function parseMangaTitleAndVolume(rawTitle) {
     isVariant = true;
   }
 
-  // Cerca pattern tipo: Titolo 12, Titolo n. 12, Titolo #12, Titolo vol. 12
   const volRegex = /(?:[#№]|vol\.?|volume|n\.?)\s*(\d+)/i;
   const trailingNumRegex = /\s+(\d+)(?:\s*\[.*\]|\s*\(.*\))?$/;
 
@@ -42,7 +41,6 @@ export function parseMangaTitleAndVolume(rawTitle) {
     }
   }
 
-  // Pulizia suffissi editoriali tipici italiani
   title = title.replace(/\s*-\s*edizione italiana.*$/i, '');
   title = title.replace(/\s*\(.*variant.*\)$/i, '');
   title = title.replace(/\s*\[.*variant.*\]$/i, '');
@@ -55,12 +53,12 @@ export function parseMangaTitleAndVolume(rawTitle) {
 }
 
 // ----------------------------------------------------
-// MULTI-PROVIDER ISBN LOOKUP (SBN OPAC -> GOOGLE BOOKS -> OPEN LIBRARY)
+// MULTI-PROVIDER ISBN LOOKUP
 // ----------------------------------------------------
 export async function searchIsbnData(isbn) {
   const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
 
-  // 1. Tenta query su SBN OPAC Italiano (Migliore per manga italiani)
+  // 1. Tenta su SBN OPAC Italiano
   try {
     const sbnUrl = `https://opac.sbn.it/oai-pmh?verb=GetRecord&identifier=oai:oaicat.sbn.it:${cleanIsbn}&metadataPrefix=marc21`;
     const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(sbnUrl)}`, { cache: 'no-store' });
@@ -82,7 +80,7 @@ export async function searchIsbnData(isbn) {
       }
     }
   } catch (e) {
-    console.warn('Fallback da SBN a Google Books...');
+    console.warn('Fallback su Google Books...');
   }
 
   // 2. Fallback su Google Books API
@@ -111,7 +109,7 @@ export async function searchIsbnData(isbn) {
       }
     }
   } catch (e) {
-    console.warn('Fallback da Google Books a Open Library...');
+    console.warn('Fallback su Open Library...');
   }
 
   // 3. Fallback su Open Library
@@ -146,7 +144,7 @@ export async function searchIsbnData(isbn) {
 }
 
 // ----------------------------------------------------
-// GESTIONE MODALE VERIFICA & SCANNER RAPIDO
+// AVVIO SCANNER FOTOCAMERA CON FIX DISPOSITIVI MOBILI
 // ----------------------------------------------------
 export function openCheckerModal(appData, activeCategory, onFastAddCallback) {
   const modal = document.getElementById('checkerModalBackdrop');
@@ -156,39 +154,69 @@ export function openCheckerModal(appData, activeCategory, onFastAddCallback) {
   modal.classList.add('active');
 
   const readerId = 'checkerCameraReader';
-  if (!html5QrCodeScanner) {
-    html5QrCodeScanner = new Html5Qrcode(readerId);
+
+  if (html5QrCodeScanner) {
+    try {
+      html5QrCodeScanner.stop().catch(() => {}).then(() => {
+        startScannerEngine(readerId, appData, activeCategory, onFastAddCallback);
+      });
+      return;
+    } catch (e) {
+      html5QrCodeScanner = null;
+    }
   }
 
+  startScannerEngine(readerId, appData, activeCategory, onFastAddCallback);
+}
+
+function startScannerEngine(readerId, appData, activeCategory, onFastAddCallback) {
+  html5QrCodeScanner = new Html5Qrcode(readerId);
   isScanThrottled = false;
   lastDecodedCode = null;
 
-  html5QrCodeScanner.start(
-    { facingMode: 'environment' },
-    {
-      fps: 12,
-      qrbox: { width: 260, height: 160 }
-    },
-    async (decodedText) => {
-      if (isScanThrottled || decodedText === lastDecodedCode) return;
-      isScanThrottled = true;
-      lastDecodedCode = decodedText;
+  const config = {
+    fps: 10,
+    qrbox: (viewfinderWidth, viewfinderHeight) => {
+      const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+      return {
+        width: Math.floor(minEdge * 0.85),
+        height: Math.floor(minEdge * 0.55)
+      };
+    }
+  };
 
-      handleBarcodeScanned(decodedText, appData, activeCategory, onFastAddCallback);
+  const onSuccess = async (decodedText) => {
+    if (isScanThrottled || decodedText === lastDecodedCode) return;
+    isScanThrottled = true;
+    lastDecodedCode = decodedText;
 
-      // Throttling di 1.5s per evitare doppie letture involontarie
-      setTimeout(() => {
-        isScanThrottled = false;
-      }, 1500);
-    },
-    () => {}
-  ).catch((err) => {
-    console.warn('Errore fotocamera scanner:', err);
-    const titleElem = document.getElementById('checkerStatusTitle');
-    const descElem = document.getElementById('checkerStatusDesc');
-    if (titleElem) titleElem.textContent = 'Errore Accesso Fotocamera';
-    if (descElem) descElem.textContent = 'Verifica i permessi per l\'uso della fotocamera nel browser.';
-  });
+    await handleBarcodeScanned(decodedText, appData, activeCategory, onFastAddCallback);
+
+    setTimeout(() => {
+      isScanThrottled = false;
+    }, 1600);
+  };
+
+  // Tenta prima fotocamera posteriore nativa
+  html5QrCodeScanner.start({ facingMode: "environment" }, config, onSuccess, () => {})
+    .catch(() => {
+      // Fallback permissivo in caso di fotocamera bloccata
+      Html5Qrcode.getCameras().then(devices => {
+        if (devices && devices.length > 0) {
+          const cameraId = devices[devices.length - 1].id;
+          html5QrCodeScanner.start(cameraId, config, onSuccess, () => {}).catch(reportCameraError);
+        } else {
+          reportCameraError();
+        }
+      }).catch(reportCameraError);
+    });
+}
+
+function reportCameraError() {
+  const titleElem = document.getElementById('checkerStatusTitle');
+  const descElem = document.getElementById('checkerStatusDesc');
+  if (titleElem) titleElem.textContent = 'Fotocamera non disponibile';
+  if (descElem) descElem.textContent = 'Verifica che i permessi fotocamera siano consentiti nel browser.';
 }
 
 export function stopCheckerModal() {
@@ -211,9 +239,7 @@ export function resetCheckerPreview() {
   const editDetailsBtn = document.getElementById('checkerEditDetailsBtn');
   const detailsPanel = document.getElementById('checkerManualDetailsPanel');
 
-  if (resultBox) {
-    resultBox.className = 'checker-result-box idle';
-  }
+  if (resultBox) resultBox.className = 'checker-result-box idle';
   if (signalIcon) signalIcon.textContent = '📷';
   if (titleElem) titleElem.textContent = 'Inquadra il codice a barre';
   if (descElem) descElem.textContent = 'Punta la fotocamera sull\'ISBN per verificare o aggiungere istantaneamente.';
@@ -224,9 +250,6 @@ export function resetCheckerPreview() {
   lastDetectedCheckItem = null;
 }
 
-// ----------------------------------------------------
-// ANALISI DEL CODICE SCANSIONATO
-// ----------------------------------------------------
 async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAddCallback) {
   const resultBox = document.getElementById('checkerResultBox');
   const signalIcon = document.getElementById('checkerSignalIcon');
@@ -237,7 +260,7 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
 
   if (signalIcon) signalIcon.textContent = '⏳';
   if (titleElem) titleElem.textContent = 'Ricerca ISBN in corso...';
-  if (descElem) descElem.textContent = `Codice: ${isbnText}. Interrogo database SBN...`;
+  if (descElem) descElem.textContent = `Codice: ${isbnText}. Interrogo SBN...`;
 
   const cleanDigits = isbnText.replace(/[^0-9X]/gi, '');
   const searchResult = await searchIsbnData(cleanDigits);
@@ -250,7 +273,6 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
     isVariant: searchResult.isVariant
   };
 
-  // Compila i campi nel pannello manuale opzionale
   const customTitle = document.getElementById('scannerCustomTitle');
   const customVol = document.getElementById('scannerCustomVol');
   const customCat = document.getElementById('scannerCustomCat');
@@ -261,7 +283,6 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
   if (customCat) customCat.value = lastDetectedCheckItem.category;
   if (customVariant) customVariant.checked = Boolean(lastDetectedCheckItem.isVariant);
 
-  // Controllo se è già presente in collezione (per ISBN o Titolo + Volume)
   const ownedMatch = appData.items.find(i => 
     i.set === 'Posseduti' && 
     (
@@ -282,7 +303,7 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
     if (resultBox) resultBox.className = 'checker-result-box red-signal';
     if (signalIcon) signalIcon.textContent = '❌';
     if (titleElem) titleElem.textContent = `GIÀ POSSEDUTO (Vol. #${ownedMatch.number || '1'})`;
-    if (descElem) descElem.textContent = `"${ownedMatch.title}" fa già parte della tua collezione nei Posseduti.`;
+    if (descElem) descElem.textContent = `"${ownedMatch.title}" è già presente nella tua collezione.`;
 
     if (fastAddBtn) fastAddBtn.style.display = 'none';
     if (editDetailsBtn) editDetailsBtn.style.display = 'none';
@@ -301,7 +322,6 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
     }
     if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
   } else {
-    // Non posseduto: pronto per l'aggiunta 1-Tap rapida
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '✨';
     if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title} #${lastDetectedCheckItem.number}`;
