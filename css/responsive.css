@@ -170,9 +170,23 @@
     padding: 1.15rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 
+ /* SU MOBILE: Action sheet in basso, ma Scanner e Scaffale perfettamente centrati verticalmente */
   .modal-backdrop {
     align-items: flex-end;
     padding: 0;
+  }
+
+  .modal-backdrop:has(.checker-modal-card),
+  .modal-backdrop:has(.shelf-modal-card) {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 1rem;
+  }
+
+  .checker-modal-card {
+    border-radius: 14px !important;
+    margin: auto !important;
+    max-height: 90vh;
   }
 
   .modal-card {
