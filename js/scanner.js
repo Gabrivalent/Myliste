@@ -92,16 +92,21 @@ async function fetchWithTimeout(url, timeoutMs = 2500) {
   }
 }
 
+// ----------------------------------------------------
+// 3. RICERCA COMBINATA ROBUSTA (GOOGLE BOOKS CON API KEY PERSONALE)
+// ----------------------------------------------------
+const GOOGLE_BOOKS_API_KEY = "AIzaSyCFFh84jZ3cNk9Tur18vzWnbgQOQPpNVUk";
+
 export async function searchIsbnData(rawIsbn) {
   const cleanIsbn = cleanAndExtractIsbn(rawIsbn);
   if (!cleanIsbn) {
     return { title: '', volume: '1', category: 'Manga', isVariant: false, isbn: '', found: false };
   }
 
-  // Tentativo 1: Google Books con query testo libero (trova molto più spesso manga rispetto a isbn:...)
+  // Tentativo 1: Google Books query testo libero con chiave API personale
   try {
-    const gUrl = `https://www.googleapis.com/books/v1/volumes?q=${cleanIsbn}&maxResults=1`;
-    const res = await fetchWithTimeout(gUrl, 2000);
+    const gUrl = `https://www.googleapis.com/books/v1/volumes?q=${cleanIsbn}&maxResults=1&key=${GOOGLE_BOOKS_API_KEY}`;
+    const res = await fetchWithTimeout(gUrl, 2500);
 
     if (res && res.ok) {
       const data = await res.json();
@@ -124,8 +129,67 @@ export async function searchIsbnData(rawIsbn) {
         };
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.warn("Errore Google Books (testo libero):", e);
+  }
 
+  // Tentativo 2: Google Books con prefisso isbn: rigoroso
+  try {
+    const gUrlStrict = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}&maxResults=1&key=${GOOGLE_BOOKS_API_KEY}`;
+    const res = await fetchWithTimeout(gUrlStrict, 2000);
+
+    if (res && res.ok) {
+      const data = await res.json();
+      if (data.totalItems > 0 && data.items && data.items[0]) {
+        const info = data.items[0].volumeInfo;
+        const parsed = parseMangaMetadata(info.title || '', info.subtitle || '');
+        return {
+          title: parsed.title,
+          volume: parsed.volume,
+          category: 'Manga',
+          isVariant: parsed.isVariant,
+          isbn: cleanIsbn,
+          found: true
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("Errore Google Books (isbn:):", e);
+  }
+
+  // Tentativo 3: Fallback Open Library
+  try {
+    const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
+    const res = await fetchWithTimeout(olUrl, 1800);
+
+    if (res && res.ok) {
+      const data = await res.json();
+      const bookKey = `ISBN:${cleanIsbn}`;
+      if (data[bookKey] && data[bookKey].title) {
+        const parsed = parseMangaMetadata(data[bookKey].title || '', data[bookKey].subtitle || '');
+        return {
+          title: parsed.title,
+          volume: parsed.volume,
+          category: 'Manga',
+          isVariant: parsed.isVariant,
+          isbn: cleanIsbn,
+          found: true
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("Errore Open Library:", e);
+  }
+
+  return {
+    title: '',
+    volume: '1',
+    category: 'Manga',
+    isVariant: false,
+    isbn: cleanIsbn,
+    found: false
+  };
+}
   // Tentativo 2: Google Books con prefisso isbn: rigoroso
   try {
     const gUrlStrict = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}&maxResults=1`;
