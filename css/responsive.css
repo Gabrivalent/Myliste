@@ -87,7 +87,7 @@
     width: 100%;
   }
 
-  /* Barra destra filtri: pulsanti a sola icona su schermi piccoli */
+  /* Barra destra filtri: pulsanti compatti a sola icona */
   .filter-bar-right {
     display: flex;
     justify-content: space-between;
