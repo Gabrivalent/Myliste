@@ -15,86 +15,118 @@ export function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-export function parseMangaTitleAndVolume(rawTitle) {
-  if (!rawTitle) return { title: '', volume: '1', isVariant: false };
+// ----------------------------------------------------
+// 1. NORMALIZZAZIONE RIGIDA ISBN (EAN-13 SENZA ADD-ON EDICOLA)
+// ----------------------------------------------------
+export function cleanAndExtractIsbn(rawBarcode) {
+  if (!rawBarcode) return null;
+  const digitsOnly = String(rawBarcode).replace(/[^0-9X]/gi, '');
 
-  let title = rawTitle.trim();
-  let volume = '1';
-  let isVariant = false;
-
-  if (/variant/i.test(title)) {
-    isVariant = true;
+  // Cerca un pattern ISBN-13 standard (inizia con 978 o 979, seguito da 10 cifre)
+  const match13 = digitsOnly.match(/(97[89]\d{10})/);
+  if (match13) {
+    return match13[1];
   }
 
-  const volRegex = /(?:[#№]|vol\.?|volume|n\.?)\s*(\d+)/i;
-  const trailingNumRegex = /\s+(\d+)(?:\s*\[.*\]|\s*\(.*\))?$/;
+  // Fallback per vecchi codici a 10 cifre
+  if (digitsOnly.length === 10) {
+    return digitsOnly;
+  }
 
-  const matchVol = title.match(volRegex);
-  if (matchVol) {
-    volume = matchVol[1];
-    title = title.replace(matchVol[0], '').trim();
-  } else {
-    const matchTrailing = title.match(trailingNumRegex);
-    if (matchTrailing) {
-      volume = matchTrailing[1];
-      title = title.replace(matchTrailing[0], '').trim();
+  // Se è più lungo ma comincia con 978/979, taglia i primi 13 caratteri
+  if (digitsOnly.startsWith('978') || digitsOnly.startsWith('979')) {
+    return digitsOnly.slice(0, 13);
+  }
+
+  return digitsOnly;
+}
+
+// ----------------------------------------------------
+// 2. PARSING TITOLO, SOTTOTITOLO E NUMERO VOLUME
+// ----------------------------------------------------
+export function parseMangaMetadata(mainTitle = '', subTitle = '') {
+  let combined = `${mainTitle} ${subTitle}`.trim();
+  let title = mainTitle.trim();
+  let volume = '1';
+  let isVariant = /variant/i.test(combined);
+
+  // Pattern per identificare il volume (es: Vol. 5, N. 12, #3, Volume 4, o numero isolato nel sottotitolo)
+  const volRegex = /(?:[#№]|vol\.?|volume|n\.?|numero)\s*(\d+)/i;
+  const trailingNumRegex = /(?:^|\s+)(\d+)(?:\s*\[.*\]|\s*\(.*\))?$/;
+
+  // 1. Prova prima ad estrarre il volume dal sottotitolo (dove spesso gli editori IT lo inseriscono)
+  if (subTitle) {
+    const subVolMatch = subTitle.match(volRegex) || subTitle.match(trailingNumRegex);
+    if (subVolMatch) {
+      volume = subVolMatch[1];
     }
   }
 
-  title = title.replace(/\s*-\s*edizione italiana.*$/i, '');
-  title = title.replace(/\s*\(.*variant.*\)$/i, '');
-  title = title.replace(/\s*\[.*variant.*\]$/i, '');
+  // 2. Se non trovato nel sottotitolo, cercalo nel titolo principale
+  if (volume === '1') {
+    const titleVolMatch = title.match(volRegex);
+    if (titleVolMatch) {
+      volume = titleVolMatch[1];
+      title = title.replace(titleVolMatch[0], '').trim();
+    } else {
+      const trailingMatch = title.match(trailingNumRegex);
+      if (trailingMatch) {
+        volume = trailingMatch[1];
+        title = title.replace(trailingMatch[0], '').trim();
+      }
+    }
+  }
+
+  // Pulizia suffissi editoriali standard
+  title = title
+    .replace(/[:\-–]\s*$/g, '')
+    .replace(/\s*-\s*edizione italiana.*$/i, '')
+    .replace(/\s*\(.*variant.*\)$/i, '')
+    .replace(/\s*\[.*variant.*\]$/i, '')
+    .trim();
 
   return {
-    title: title.trim(),
+    title: title || mainTitle.trim(),
     volume: String(parseInt(volume, 10) || 1),
     isVariant
   };
 }
 
 // ----------------------------------------------------
-// MULTI-PROVIDER ISBN LOOKUP
+// 3. RICERCA ULTRA-RAPIDA CON TIMEOUT (GOOGLE BOOKS IT + OPEN LIBRARY)
 // ----------------------------------------------------
-export async function searchIsbnData(isbn) {
-  const cleanIsbn = isbn.replace(/[^0-9X]/gi, '');
-
-  // 1. Tenta su SBN OPAC Italiano
+async function fetchWithTimeout(url, timeoutMs = 1800) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const sbnUrl = `https://opac.sbn.it/oai-pmh?verb=GetRecord&identifier=oai:oaicat.sbn.it:${cleanIsbn}&metadataPrefix=marc21`;
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(sbnUrl)}`, { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.contents && data.contents.includes('<title>')) {
-        const titleMatch = data.contents.match(/<title>(.*?)<\/title>/i);
-        if (titleMatch && titleMatch[1]) {
-          const parsed = parseMangaTitleAndVolume(titleMatch[1]);
-          return {
-            title: parsed.title,
-            volume: parsed.volume,
-            category: 'Manga',
-            isVariant: parsed.isVariant,
-            isbn: cleanIsbn,
-            provider: 'SBN OPAC'
-          };
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('Fallback su Google Books...');
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    return null;
+  }
+}
+
+export async function searchIsbnData(rawIsbn) {
+  const cleanIsbn = cleanAndExtractIsbn(rawIsbn);
+  if (!cleanIsbn) {
+    return { title: '', volume: '1', category: 'Manga', isVariant: false, isbn: '' };
   }
 
-  // 2. Fallback su Google Books API
+  // A) Google Books IT diretto (Senza CORS, veloce)
   try {
-    const gUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`;
-    const res = await fetch(gUrl);
-    if (res.ok) {
+    const gUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}&langRestrict=it&maxResults=1`;
+    const res = await fetchWithTimeout(gUrl, 1800);
+
+    if (res && res.ok) {
       const data = await res.json();
       if (data.totalItems > 0 && data.items && data.items[0]) {
         const info = data.items[0].volumeInfo;
-        const parsed = parseMangaTitleAndVolume(info.title);
-        
+        const parsed = parseMangaMetadata(info.title || '', info.subtitle || '');
+
         let cat = 'Manga';
-        if (info.categories && info.categories.some(c => /comic|graphic novel/i.test(c))) {
+        if (info.categories && info.categories.some(c => /comic|fumett|graphic/i.test(c))) {
           cat = 'Comics';
         }
 
@@ -104,47 +136,49 @@ export async function searchIsbnData(isbn) {
           category: cat,
           isVariant: parsed.isVariant,
           isbn: cleanIsbn,
-          provider: 'Google Books'
+          found: true
         };
       }
     }
   } catch (e) {
-    console.warn('Fallback su Open Library...');
+    console.warn('Google Books IT timeout/errore');
   }
 
-  // 3. Fallback su Open Library
+  // B) Fallback immediato Open Library (se Google non ha l'opera)
   try {
     const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
-    const res = await fetch(olUrl);
-    if (res.ok) {
+    const res = await fetchWithTimeout(olUrl, 1200);
+
+    if (res && res.ok) {
       const data = await res.json();
       const bookKey = `ISBN:${cleanIsbn}`;
       if (data[bookKey]) {
-        const parsed = parseMangaTitleAndVolume(data[bookKey].title);
+        const parsed = parseMangaMetadata(data[bookKey].title || '', data[bookKey].subtitle || '');
         return {
           title: parsed.title,
           volume: parsed.volume,
           category: 'Manga',
           isVariant: parsed.isVariant,
           isbn: cleanIsbn,
-          provider: 'Open Library'
+          found: true
         };
       }
     }
   } catch (e) {}
 
+  // C) Default se non censito nei cataloghi generici
   return {
     title: '',
     volume: '1',
     category: 'Manga',
     isVariant: false,
     isbn: cleanIsbn,
-    provider: 'Manuale'
+    found: false
   };
 }
 
 // ----------------------------------------------------
-// AVVIO SCANNER FOTOCAMERA CON FIX DISPOSITIVI MOBILI
+// 4. MOTORE SCANNER CAMERA CON PREVENZIONE DOPPIE SCANSIONI
 // ----------------------------------------------------
 export function openCheckerModal(appData, activeCategory, onFastAddCallback) {
   const modal = document.getElementById('checkerModalBackdrop');
@@ -175,9 +209,9 @@ function startScannerEngine(readerId, appData, activeCategory, onFastAddCallback
   lastDecodedCode = null;
 
   const config = {
-    fps: 10,
-    qrbox: (viewfinderWidth, viewfinderHeight) => {
-      const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+    fps: 12,
+    qrbox: (w, h) => {
+      const minEdge = Math.min(w, h);
       return {
         width: Math.floor(minEdge * 0.85),
         height: Math.floor(minEdge * 0.55)
@@ -186,21 +220,21 @@ function startScannerEngine(readerId, appData, activeCategory, onFastAddCallback
   };
 
   const onSuccess = async (decodedText) => {
-    if (isScanThrottled || decodedText === lastDecodedCode) return;
-    isScanThrottled = true;
-    lastDecodedCode = decodedText;
+    const validIsbn = cleanAndExtractIsbn(decodedText);
+    if (!validIsbn || isScanThrottled || validIsbn === lastDecodedCode) return;
 
-    await handleBarcodeScanned(decodedText, appData, activeCategory, onFastAddCallback);
+    isScanThrottled = true;
+    lastDecodedCode = validIsbn;
+
+    await handleBarcodeScanned(validIsbn, appData, activeCategory, onFastAddCallback);
 
     setTimeout(() => {
       isScanThrottled = false;
-    }, 1600);
+    }, 1500);
   };
 
-  // Tenta prima fotocamera posteriore nativa
   html5QrCodeScanner.start({ facingMode: "environment" }, config, onSuccess, () => {})
     .catch(() => {
-      // Fallback permissivo in caso di fotocamera bloccata
       Html5Qrcode.getCameras().then(devices => {
         if (devices && devices.length > 0) {
           const cameraId = devices[devices.length - 1].id;
@@ -216,7 +250,7 @@ function reportCameraError() {
   const titleElem = document.getElementById('checkerStatusTitle');
   const descElem = document.getElementById('checkerStatusDesc');
   if (titleElem) titleElem.textContent = 'Fotocamera non disponibile';
-  if (descElem) descElem.textContent = 'Verifica che i permessi fotocamera siano consentiti nel browser.';
+  if (descElem) descElem.textContent = 'Verifica che i permessi della fotocamera siano attivi nelle impostazioni del browser.';
 }
 
 export function stopCheckerModal() {
@@ -250,24 +284,27 @@ export function resetCheckerPreview() {
   lastDetectedCheckItem = null;
 }
 
-async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAddCallback) {
+// ----------------------------------------------------
+// 5. GESTIONE RISULTATO E AZIONE 1-TAP
+// ----------------------------------------------------
+async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAddCallback) {
   const resultBox = document.getElementById('checkerResultBox');
   const signalIcon = document.getElementById('checkerSignalIcon');
   const titleElem = document.getElementById('checkerStatusTitle');
   const descElem = document.getElementById('checkerStatusDesc');
   const fastAddBtn = document.getElementById('checkerFastAddBtn');
   const editDetailsBtn = document.getElementById('checkerEditDetailsBtn');
+  const detailsPanel = document.getElementById('checkerManualDetailsPanel');
 
   if (signalIcon) signalIcon.textContent = '⏳';
-  if (titleElem) titleElem.textContent = 'Ricerca ISBN in corso...';
-  if (descElem) descElem.textContent = `Codice: ${isbnText}. Interrogo SBN...`;
+  if (titleElem) titleElem.textContent = 'Ricerca in corso...';
+  if (descElem) descElem.textContent = `ISBN: ${cleanIsbn}`;
 
-  const cleanDigits = isbnText.replace(/[^0-9X]/gi, '');
-  const searchResult = await searchIsbnData(cleanDigits);
+  const searchResult = await searchIsbnData(cleanIsbn);
 
   lastDetectedCheckItem = {
-    isbn: cleanDigits,
-    title: searchResult.title || `Opera ISBN ${cleanDigits}`,
+    isbn: cleanIsbn,
+    title: searchResult.title || '',
     number: searchResult.volume || '1',
     category: searchResult.category || (activeCategory !== 'Tutte' ? activeCategory : 'Generale'),
     isVariant: searchResult.isVariant
@@ -283,19 +320,20 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
   if (customCat) customCat.value = lastDetectedCheckItem.category;
   if (customVariant) customVariant.checked = Boolean(lastDetectedCheckItem.isVariant);
 
-  const ownedMatch = appData.items.find(i => 
-    i.set === 'Posseduti' && 
+  // Controllo se è già presente nella collezione locale
+  const ownedMatch = appData.items.find(i =>
+    i.set === 'Posseduti' &&
     (
-      (i.isbn && i.isbn === cleanDigits) ||
-      (i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
+      (i.isbn && i.isbn === cleanIsbn) ||
+      (lastDetectedCheckItem.title && i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
     )
   );
 
-  const acquistiMatch = appData.items.find(i => 
-    i.set === 'Acquisti' && 
+  const acquistiMatch = appData.items.find(i =>
+    i.set === 'Acquisti' &&
     (
-      (i.isbn && i.isbn === cleanDigits) ||
-      (i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
+      (i.isbn && i.isbn === cleanIsbn) ||
+      (lastDetectedCheckItem.title && i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
     )
   );
 
@@ -303,15 +341,18 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
     if (resultBox) resultBox.className = 'checker-result-box red-signal';
     if (signalIcon) signalIcon.textContent = '❌';
     if (titleElem) titleElem.textContent = `GIÀ POSSEDUTO (Vol. #${ownedMatch.number || '1'})`;
-    if (descElem) descElem.textContent = `"${ownedMatch.title}" è già presente nella tua collezione.`;
+    if (descElem) descElem.textContent = `"${ownedMatch.title}" è già nella tua collezione nei Posseduti.`;
 
     if (fastAddBtn) fastAddBtn.style.display = 'none';
     if (editDetailsBtn) editDetailsBtn.style.display = 'none';
-  } else if (acquistiMatch) {
+    return;
+  }
+
+  if (acquistiMatch) {
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '📋';
     if (titleElem) titleElem.textContent = `PRESENTE IN ACQUISTI (Vol. #${acquistiMatch.number || '1'})`;
-    if (descElem) descElem.textContent = `"${acquistiMatch.title}" è nella lista da comprare.`;
+    if (descElem) descElem.textContent = `"${acquistiMatch.title}" è in lista da comprare.`;
 
     if (fastAddBtn) {
       fastAddBtn.style.display = 'inline-flex';
@@ -321,14 +362,18 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
       };
     }
     if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
-  } else {
+    return;
+  }
+
+  const targetSetSelect = document.getElementById('scannerTargetSetPreset');
+  const targetSet = targetSetSelect ? targetSetSelect.value : 'Posseduti';
+
+  if (searchResult.found) {
+    // Titolo riconosciuto online
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '✨';
     if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title} #${lastDetectedCheckItem.number}`;
-    if (descElem) descElem.textContent = `Non presente in collezione. Pronto da aggiungere subito!`;
-
-    const targetSetSelect = document.getElementById('scannerTargetSetPreset');
-    const targetSet = targetSetSelect ? targetSetSelect.value : 'Posseduti';
+    if (descElem) descElem.textContent = `Trovato! Pronto da aggiungere a ${targetSet}.`;
 
     if (fastAddBtn) {
       fastAddBtn.style.display = 'inline-flex';
@@ -338,5 +383,24 @@ async function handleBarcodeScanned(isbnText, appData, activeCategory, onFastAdd
       };
     }
     if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
+  } else {
+    // Barcode valido ma titolo non indicizzato online: apre subito i campi per digitare al volo
+    if (resultBox) resultBox.className = 'checker-result-box idle';
+    if (signalIcon) signalIcon.textContent = '✏️';
+    if (titleElem) titleElem.textContent = `ISBN: ${cleanIsbn}`;
+    if (descElem) descElem.textContent = `Non censito online. Digita il titolo qui sotto e salva:`;
+
+    if (detailsPanel) detailsPanel.style.display = 'flex';
+    if (editDetailsBtn) editDetailsBtn.style.display = 'none';
+
+    if (fastAddBtn) {
+      fastAddBtn.style.display = 'inline-flex';
+      fastAddBtn.textContent = `+ Salva in ${targetSet}`;
+      fastAddBtn.onclick = () => {
+        if (onFastAddCallback) onFastAddCallback('ADD_NEW', lastDetectedCheckItem);
+      };
+    }
+
+    if (customTitle) customTitle.focus();
   }
 }
