@@ -71,10 +71,14 @@ export function createPayloadFromItem(item) {
     private_comment: cleanComment
   };
 
+  // CONTROLLO INT4 (32-bit signed integer):
+  // Valore massimo per PostgreSQL: 2.147.483.647.
+  // Se l'ID è un timestamp o un numero gigante, viene omesso affinché Supabase generi un ID valido.
   const numericId = parseInt(item.id, 10);
   if (!isNaN(numericId) && numericId > 0 && numericId <= 2147483647) {
     payload.id = numericId;
   }
+
   return payload;
 }
 
@@ -83,6 +87,7 @@ export async function syncItemToSupabase(item, onSaveCallback) {
 
   try {
     const payload = createPayloadFromItem(item);
+
     const { data, error } = await supabaseClient
       .from('items')
       .upsert(payload)
@@ -90,6 +95,7 @@ export async function syncItemToSupabase(item, onSaveCallback) {
 
     if (error) throw error;
 
+    // Se Supabase ha generato o aggiornato l'ID, lo riallineiamo subito in locale
     if (data && data[0] && data[0].id) {
       item.id = Number(data[0].id);
       if (onSaveCallback) onSaveCallback();
