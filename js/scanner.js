@@ -5,9 +5,6 @@ export let lastDetectedCheckItem = null;
 let isScanThrottled = false;
 let lastDecodedCode = null;
 
-// Chiave API personale Google Books (Dati pubblici)
-const GOOGLE_BOOKS_API_KEY = "AIzaSyCFFh84jZ3cNk9Tur18vzWnbgQOQPpNVUk";
-
 export function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -25,7 +22,6 @@ export function cleanAndExtractIsbn(rawBarcode) {
   if (!rawBarcode) return null;
   const digitsOnly = String(rawBarcode).replace(/[^0-9X]/gi, '');
 
-  // Cerca un pattern standard ISBN-13 (prefisso 978 o 979 con 10 cifre successive)
   const match13 = digitsOnly.match(/(97[89]\d{10})/);
   if (match13) return match13[1];
 
@@ -81,7 +77,7 @@ export function parseMangaMetadata(mainTitle = '', subTitle = '') {
 }
 
 // ----------------------------------------------------
-// 3. FETCH CON TIMEOUT E RICERCA GOOGLE BOOKS + OPEN LIBRARY
+// 3. RICERCA MULTI-PROVIDER RESILIENTE (Inventaire + Open Library)
 // ----------------------------------------------------
 async function fetchWithTimeout(url, timeoutMs = 2800) {
   const controller = new AbortController();
@@ -102,19 +98,49 @@ export async function searchIsbnData(rawIsbn) {
     return { title: '', volume: '1', category: 'Manga', isVariant: false, isbn: '', found: false };
   }
 
-  // Tentativo 1: Google Books query libera con API Key personale
+  // TENTATIVO 1: Inventaire.io (basato su Wikidata, include molte edizioni manga italiane/europee)
   try {
-    const gUrl = `https://www.googleapis.com/books/v1/volumes?q=${cleanIsbn}&maxResults=1&key=${GOOGLE_BOOKS_API_KEY}`;
-    const res = await fetchWithTimeout(gUrl, 2500);
+    const invUrl = `https://inventaire.io/api/entities?action=by-uris&uris=isbn:${cleanIsbn}`;
+    const res = await fetchWithTimeout(invUrl, 2500);
 
     if (res && res.ok) {
       const data = await res.json();
-      if (data.totalItems > 0 && data.items && data.items[0]) {
-        const info = data.items[0].volumeInfo;
-        const parsed = parseMangaMetadata(info.title || '', info.subtitle || '');
+      const entityKey = `isbn:${cleanIsbn}`;
+      if (data.entities && data.entities[entityKey]) {
+        const entity = data.entities[entityKey];
+        const rawTitle = entity.label || (entity.claims && entity.claims['wdt:P1476'] && entity.claims['wdt:P1476'][0]) || '';
+
+        if (rawTitle) {
+          const parsed = parseMangaMetadata(rawTitle, '');
+          return {
+            title: parsed.title,
+            volume: parsed.volume,
+            category: 'Manga',
+            isVariant: parsed.isVariant,
+            isbn: cleanIsbn,
+            found: true
+          };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Inventaire API non disponibile:", e);
+  }
+
+  // TENTATIVO 2: Open Library Data API
+  try {
+    const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
+    const res = await fetchWithTimeout(olUrl, 2000);
+
+    if (res && res.ok) {
+      const data = await res.json();
+      const bookKey = `ISBN:${cleanIsbn}`;
+      if (data[bookKey] && data[bookKey].title) {
+        const bookInfo = data[bookKey];
+        const parsed = parseMangaMetadata(bookInfo.title || '', bookInfo.subtitle || '');
 
         let cat = 'Manga';
-        if (info.categories && info.categories.some(c => /comic|fumett|graphic/i.test(c))) {
+        if (bookInfo.subjects && bookInfo.subjects.some(s => /comic|fumett|graphic/i.test(s.name || ''))) {
           cat = 'Comics';
         }
 
@@ -129,19 +155,19 @@ export async function searchIsbnData(rawIsbn) {
       }
     }
   } catch (e) {
-    console.warn("Errore Google Books (query libera):", e);
+    console.warn("Open Library Data non disponibile:", e);
   }
 
-  // Tentativo 2: Google Books con prefisso isbn:
+  // TENTATIVO 3: Open Library Search API
   try {
-    const gUrlStrict = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}&maxResults=1&key=${GOOGLE_BOOKS_API_KEY}`;
-    const res = await fetchWithTimeout(gUrlStrict, 2000);
+    const olSearchUrl = `https://openlibrary.org/search.json?isbn=${cleanIsbn}&limit=1`;
+    const res = await fetchWithTimeout(olSearchUrl, 2000);
 
     if (res && res.ok) {
       const data = await res.json();
-      if (data.totalItems > 0 && data.items && data.items[0]) {
-        const info = data.items[0].volumeInfo;
-        const parsed = parseMangaMetadata(info.title || '', info.subtitle || '');
+      if (data.docs && data.docs.length > 0) {
+        const doc = data.docs[0];
+        const parsed = parseMangaMetadata(doc.title || '', doc.subtitle || '');
         return {
           title: parsed.title,
           volume: parsed.volume,
@@ -153,31 +179,7 @@ export async function searchIsbnData(rawIsbn) {
       }
     }
   } catch (e) {
-    console.warn("Errore Google Books (isbn):", e);
-  }
-
-  // Tentativo 3: Fallback Open Library API
-  try {
-    const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
-    const res = await fetchWithTimeout(olUrl, 1800);
-
-    if (res && res.ok) {
-      const data = await res.json();
-      const bookKey = `ISBN:${cleanIsbn}`;
-      if (data[bookKey] && data[bookKey].title) {
-        const parsed = parseMangaMetadata(data[bookKey].title || '', data[bookKey].subtitle || '');
-        return {
-          title: parsed.title,
-          volume: parsed.volume,
-          category: 'Manga',
-          isVariant: parsed.isVariant,
-          isbn: cleanIsbn,
-          found: true
-        };
-      }
-    }
-  } catch (e) {
-    console.warn("Errore Open Library:", e);
+    console.warn("Open Library Search non disponibile:", e);
   }
 
   return {
@@ -191,7 +193,7 @@ export async function searchIsbnData(rawIsbn) {
 }
 
 // ----------------------------------------------------
-// 4. GESTIONE SCANNER FOTOCAMERA (ANTI-FLICKER)
+// 4. MOTORE SCANNER FOTOCAMERA (ANTI-FLICKER)
 // ----------------------------------------------------
 export function openCheckerModal(appData, activeCategory, onFastAddCallback) {
   const modal = document.getElementById('checkerModalBackdrop');
@@ -294,7 +296,7 @@ export function resetCheckerPreview() {
 }
 
 // ----------------------------------------------------
-// 5. GESTIONE RISULTATO E AZIONI DI AGGIUNTA
+// 5. GESTIONE RISULTATO E AZIONE 1-TAP
 // ----------------------------------------------------
 async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAddCallback) {
   const resultBox = document.getElementById('checkerResultBox');
@@ -329,7 +331,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
   if (customCat) customCat.value = lastDetectedCheckItem.category;
   if (customVariant) customVariant.checked = Boolean(lastDetectedCheckItem.isVariant);
 
-  // Controllo duplicati in Posseduti
+  // Controllo se già in Posseduti
   const ownedMatch = appData.items.find(i =>
     i.set === 'Posseduti' &&
     (
@@ -338,7 +340,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     )
   );
 
-  // Controllo presenza in Acquisti
+  // Controllo se già in Acquisti
   const acquistiMatch = appData.items.find(i =>
     i.set === 'Acquisti' &&
     (
@@ -351,7 +353,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     if (resultBox) resultBox.className = 'checker-result-box red-signal';
     if (signalIcon) signalIcon.textContent = '❌';
     if (titleElem) titleElem.textContent = `GIÀ POSSEDUTO (#${ownedMatch.number || '1'})`;
-    if (descElem) descElem.textContent = `"${ownedMatch.title}" è già presente nella tua collezione.`;
+    if (descElem) descElem.textContent = `"${ownedMatch.title}" è già nella tua collezione.`;
 
     if (fastAddBtn) fastAddBtn.style.display = 'none';
     if (editDetailsBtn) editDetailsBtn.style.display = 'none';
@@ -382,7 +384,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '✨';
     if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title} #${lastDetectedCheckItem.number}`;
-    if (descElem) descElem.textContent = `Trovato online! Salva in ${targetSet}.`;
+    if (descElem) descElem.textContent = `Trovato! Pronto per ${targetSet}.`;
 
     if (fastAddBtn) {
       fastAddBtn.style.display = 'inline-flex';
@@ -396,7 +398,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     if (resultBox) resultBox.className = 'checker-result-box idle';
     if (signalIcon) signalIcon.textContent = '✏️';
     if (titleElem) titleElem.textContent = `ISBN: ${cleanIsbn}`;
-    if (descElem) descElem.textContent = `Titolo non trovato online. Inseriscilo manualmente:`;
+    if (descElem) descElem.textContent = `Non censito online. Inserisci il titolo:`;
 
     if (detailsPanel) detailsPanel.style.display = 'flex';
     if (editDetailsBtn) editDetailsBtn.style.display = 'none';
