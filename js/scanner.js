@@ -5,7 +5,6 @@ export let lastDetectedCheckItem = null;
 let isScanThrottled = false;
 let lastDecodedCode = null;
 
-// Endpoint del tuo Cloudflare Worker personale
 const WORKER_ENDPOINT = "https://weathered-salad-0133.valentegabriele00.workers.dev/";
 
 export function escapeHtml(str) {
@@ -18,29 +17,30 @@ export function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// ----------------------------------------------------
-// 1. NORMALIZZAZIONE E PULIZIA ISBN-13 / EAN
-// ----------------------------------------------------
 export function cleanAndExtractIsbn(rawBarcode) {
   if (!rawBarcode) return null;
   const digitsOnly = String(rawBarcode).replace(/[^0-9X]/gi, '');
-
   const match13 = digitsOnly.match(/(97[89]\d{10})/);
   if (match13) return match13[1];
-
   if (digitsOnly.length === 10) return digitsOnly;
   if (digitsOnly.startsWith('978') || digitsOnly.startsWith('979')) return digitsOnly.slice(0, 13);
-
   return digitsOnly;
 }
 
-// ----------------------------------------------------
-// 2. PARSING METADATI MANGA E NUMERO VOLUME
-// ----------------------------------------------------
+export function cleanVolumeNumber(rawNum) {
+  if (!rawNum) return '';
+  const trimmed = String(rawNum).trim();
+  // Se l'utente scrive 'N', 'n', 'None', o 'U' (Volume Unico), restituisce stringa vuota
+  if (/^(n|none|u|unico|-)$/i.test(trimmed)) {
+    return '';
+  }
+  return trimmed;
+}
+
 export function parseMangaMetadata(mainTitle = '', subTitle = '') {
   let combined = `${mainTitle} ${subTitle}`.trim();
   let title = mainTitle.trim();
-  let volume = '1';
+  let volume = '';
   let isVariant = /variant/i.test(combined);
 
   const volRegex = /(?:[#№]|vol\.?|volume|n\.?|numero)\s*(\d+)/i;
@@ -51,7 +51,7 @@ export function parseMangaMetadata(mainTitle = '', subTitle = '') {
     if (subVolMatch) volume = subVolMatch[1];
   }
 
-  if (volume === '1') {
+  if (!volume) {
     const titleVolMatch = title.match(volRegex);
     if (titleVolMatch) {
       volume = titleVolMatch[1];
@@ -74,14 +74,11 @@ export function parseMangaMetadata(mainTitle = '', subTitle = '') {
 
   return {
     title: title || mainTitle.trim(),
-    volume: String(parseInt(volume, 10) || 1),
+    volume: cleanVolumeNumber(volume),
     isVariant
   };
 }
 
-// ----------------------------------------------------
-// 3. RICERCA ISBN TRAMITE CLOUDFLARE WORKER
-// ----------------------------------------------------
 async function fetchWithTimeout(url, timeoutMs = 3500) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -98,7 +95,7 @@ async function fetchWithTimeout(url, timeoutMs = 3500) {
 export async function searchIsbnData(rawIsbn) {
   const cleanIsbn = cleanAndExtractIsbn(rawIsbn);
   if (!cleanIsbn) {
-    return { title: '', volume: '1', category: 'Manga', isVariant: false, isbn: '', found: false };
+    return { title: '', volume: '', category: 'Manga', isVariant: false, isbn: '', found: false };
   }
 
   try {
@@ -125,7 +122,7 @@ export async function searchIsbnData(rawIsbn) {
 
   return {
     title: '',
-    volume: '1',
+    volume: '',
     category: 'Manga',
     isVariant: false,
     isbn: cleanIsbn,
@@ -133,9 +130,6 @@ export async function searchIsbnData(rawIsbn) {
   };
 }
 
-// ----------------------------------------------------
-// 4. GESTIONE SCANNER FOTOCAMERA (ANTI-FLICKER)
-// ----------------------------------------------------
 export function openCheckerModal(appData, activeCategory, onFastAddCallback) {
   const modal = document.getElementById('checkerModalBackdrop');
   if (!modal) return;
@@ -236,9 +230,6 @@ export function resetCheckerPreview() {
   lastDetectedCheckItem = null;
 }
 
-// ----------------------------------------------------
-// 5. GESTIONE RISULTATO E AZIONE RAPIDA
-// ----------------------------------------------------
 async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAddCallback) {
   const resultBox = document.getElementById('checkerResultBox');
   const signalIcon = document.getElementById('checkerSignalIcon');
@@ -257,7 +248,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
   lastDetectedCheckItem = {
     isbn: cleanIsbn,
     title: searchResult.title || '',
-    number: searchResult.volume || '1',
+    number: cleanVolumeNumber(searchResult.volume),
     category: searchResult.category || (activeCategory !== 'Tutte' ? activeCategory : 'Manga'),
     isVariant: searchResult.isVariant
   };
@@ -272,28 +263,29 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
   if (customCat) customCat.value = lastDetectedCheckItem.category;
   if (customVariant) customVariant.checked = Boolean(lastDetectedCheckItem.isVariant);
 
-  // Controllo se già in Posseduti
+  const displayNum = lastDetectedCheckItem.number ? ` #${lastDetectedCheckItem.number}` : '';
+
   const ownedMatch = appData.items.find(i =>
     i.set === 'Posseduti' &&
     (
       (i.isbn && i.isbn === cleanIsbn) ||
-      (lastDetectedCheckItem.title && i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
+      (lastDetectedCheckItem.title && i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && cleanVolumeNumber(i.number) === lastDetectedCheckItem.number)
     )
   );
 
-  // Controllo se già in Acquisti
   const acquistiMatch = appData.items.find(i =>
     i.set === 'Acquisti' &&
     (
       (i.isbn && i.isbn === cleanIsbn) ||
-      (lastDetectedCheckItem.title && i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && String(i.number || '') === String(lastDetectedCheckItem.number || ''))
+      (lastDetectedCheckItem.title && i.title.trim().toLowerCase() === lastDetectedCheckItem.title.toLowerCase() && cleanVolumeNumber(i.number) === lastDetectedCheckItem.number)
     )
   );
 
   if (ownedMatch) {
+    const ownedDisplayNum = ownedMatch.number ? ` (#${ownedMatch.number})` : '';
     if (resultBox) resultBox.className = 'checker-result-box red-signal';
     if (signalIcon) signalIcon.textContent = '❌';
-    if (titleElem) titleElem.textContent = `GIÀ POSSEDUTO (#${ownedMatch.number || '1'})`;
+    if (titleElem) titleElem.textContent = `GIÀ POSSEDUTO${ownedDisplayNum}`;
     if (descElem) descElem.textContent = `"${ownedMatch.title}" è già presente nella tua collezione.`;
 
     if (fastAddBtn) fastAddBtn.style.display = 'none';
@@ -302,9 +294,10 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
   }
 
   if (acquistiMatch) {
+    const acqDisplayNum = acquistiMatch.number ? ` (#${acquistiMatch.number})` : '';
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '📋';
-    if (titleElem) titleElem.textContent = `IN ACQUISTI (#${acquistiMatch.number || '1'})`;
+    if (titleElem) titleElem.textContent = `IN ACQUISTI${acqDisplayNum}`;
     if (descElem) descElem.textContent = `"${acquistiMatch.title}" è nella lista da comprare.`;
 
     if (fastAddBtn) {
@@ -324,7 +317,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
   if (searchResult.found) {
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '✨';
-    if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title} #${lastDetectedCheckItem.number}`;
+    if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title}${displayNum}`;
     if (descElem) descElem.textContent = `Trovato! Pronto per ${targetSet}.`;
 
     if (fastAddBtn) {
