@@ -5,6 +5,9 @@ export let lastDetectedCheckItem = null;
 let isScanThrottled = false;
 let lastDecodedCode = null;
 
+// Chiave API personale Google Books (Dati pubblici)
+const GOOGLE_BOOKS_API_KEY = "AIzaSyCFFh84jZ3cNk9Tur18vzWnbgQOQPpNVUk";
+
 export function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -16,12 +19,13 @@ export function escapeHtml(str) {
 }
 
 // ----------------------------------------------------
-// 1. NORMALIZZAZIONE ISBN-13
+// 1. NORMALIZZAZIONE E PULIZIA ISBN-13 / EAN
 // ----------------------------------------------------
 export function cleanAndExtractIsbn(rawBarcode) {
   if (!rawBarcode) return null;
   const digitsOnly = String(rawBarcode).replace(/[^0-9X]/gi, '');
 
+  // Cerca un pattern standard ISBN-13 (prefisso 978 o 979 con 10 cifre successive)
   const match13 = digitsOnly.match(/(97[89]\d{10})/);
   if (match13) return match13[1];
 
@@ -32,7 +36,7 @@ export function cleanAndExtractIsbn(rawBarcode) {
 }
 
 // ----------------------------------------------------
-// 2. PARSING DEL METADATA MANGA
+// 2. PARSING METADATI MANGA E NUMERO VOLUME
 // ----------------------------------------------------
 export function parseMangaMetadata(mainTitle = '', subTitle = '') {
   let combined = `${mainTitle} ${subTitle}`.trim();
@@ -77,9 +81,9 @@ export function parseMangaMetadata(mainTitle = '', subTitle = '') {
 }
 
 // ----------------------------------------------------
-// 3. RICERCA COMBINATA ROBUSTA (GOOGLE BOOKS LIBERO + OPEN LIBRARY)
+// 3. FETCH CON TIMEOUT E RICERCA GOOGLE BOOKS + OPEN LIBRARY
 // ----------------------------------------------------
-async function fetchWithTimeout(url, timeoutMs = 2500) {
+async function fetchWithTimeout(url, timeoutMs = 2800) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -92,18 +96,13 @@ async function fetchWithTimeout(url, timeoutMs = 2500) {
   }
 }
 
-// ----------------------------------------------------
-// 3. RICERCA COMBINATA ROBUSTA (GOOGLE BOOKS CON API KEY PERSONALE)
-// ----------------------------------------------------
-const GOOGLE_BOOKS_API_KEY = "AIzaSyCFFh84jZ3cNk9Tur18vzWnbgQOQPpNVUk";
-
 export async function searchIsbnData(rawIsbn) {
   const cleanIsbn = cleanAndExtractIsbn(rawIsbn);
   if (!cleanIsbn) {
     return { title: '', volume: '1', category: 'Manga', isVariant: false, isbn: '', found: false };
   }
 
-  // Tentativo 1: Google Books query testo libero con chiave API personale
+  // Tentativo 1: Google Books query libera con API Key personale
   try {
     const gUrl = `https://www.googleapis.com/books/v1/volumes?q=${cleanIsbn}&maxResults=1&key=${GOOGLE_BOOKS_API_KEY}`;
     const res = await fetchWithTimeout(gUrl, 2500);
@@ -130,10 +129,10 @@ export async function searchIsbnData(rawIsbn) {
       }
     }
   } catch (e) {
-    console.warn("Errore Google Books (testo libero):", e);
+    console.warn("Errore Google Books (query libera):", e);
   }
 
-  // Tentativo 2: Google Books con prefisso isbn: rigoroso
+  // Tentativo 2: Google Books con prefisso isbn:
   try {
     const gUrlStrict = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}&maxResults=1&key=${GOOGLE_BOOKS_API_KEY}`;
     const res = await fetchWithTimeout(gUrlStrict, 2000);
@@ -154,10 +153,10 @@ export async function searchIsbnData(rawIsbn) {
       }
     }
   } catch (e) {
-    console.warn("Errore Google Books (isbn:):", e);
+    console.warn("Errore Google Books (isbn):", e);
   }
 
-  // Tentativo 3: Fallback Open Library
+  // Tentativo 3: Fallback Open Library API
   try {
     const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
     const res = await fetchWithTimeout(olUrl, 1800);
@@ -190,62 +189,9 @@ export async function searchIsbnData(rawIsbn) {
     found: false
   };
 }
-  // Tentativo 2: Google Books con prefisso isbn: rigoroso
-  try {
-    const gUrlStrict = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}&maxResults=1`;
-    const res = await fetchWithTimeout(gUrlStrict, 1800);
-
-    if (res && res.ok) {
-      const data = await res.json();
-      if (data.totalItems > 0 && data.items && data.items[0]) {
-        const info = data.items[0].volumeInfo;
-        const parsed = parseMangaMetadata(info.title || '', info.subtitle || '');
-        return {
-          title: parsed.title,
-          volume: parsed.volume,
-          category: 'Manga',
-          isVariant: parsed.isVariant,
-          isbn: cleanIsbn,
-          found: true
-        };
-      }
-    }
-  } catch (e) {}
-
-  // Tentativo 3: Open Library API
-  try {
-    const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
-    const res = await fetchWithTimeout(olUrl, 1500);
-
-    if (res && res.ok) {
-      const data = await res.json();
-      const bookKey = `ISBN:${cleanIsbn}`;
-      if (data[bookKey]) {
-        const parsed = parseMangaMetadata(data[bookKey].title || '', data[bookKey].subtitle || '');
-        return {
-          title: parsed.title,
-          volume: parsed.volume,
-          category: 'Manga',
-          isVariant: parsed.isVariant,
-          isbn: cleanIsbn,
-          found: true
-        };
-      }
-    }
-  } catch (e) {}
-
-  return {
-    title: '',
-    volume: '1',
-    category: 'Manga',
-    isVariant: false,
-    isbn: cleanIsbn,
-    found: false
-  };
-}
 
 // ----------------------------------------------------
-// 4. SCANNER CAMERA CON OVERLAY PULITO (ZERO FLICKERING)
+// 4. GESTIONE SCANNER FOTOCAMERA (ANTI-FLICKER)
 // ----------------------------------------------------
 export function openCheckerModal(appData, activeCategory, onFastAddCallback) {
   const modal = document.getElementById('checkerModalBackdrop');
@@ -275,7 +221,6 @@ function startScannerEngine(readerId, appData, activeCategory, onFastAddCallback
   isScanThrottled = false;
   lastDecodedCode = null;
 
-  // Disattiviamo il box visivo integrato della libreria per azzerare lo sfarfallio verde
   const config = {
     fps: 10,
     experimentalFeatures: {
@@ -349,7 +294,7 @@ export function resetCheckerPreview() {
 }
 
 // ----------------------------------------------------
-// 5. GESTIONE RISULTATO E AZIONE 1-TAP
+// 5. GESTIONE RISULTATO E AZIONI DI AGGIUNTA
 // ----------------------------------------------------
 async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAddCallback) {
   const resultBox = document.getElementById('checkerResultBox');
@@ -384,6 +329,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
   if (customCat) customCat.value = lastDetectedCheckItem.category;
   if (customVariant) customVariant.checked = Boolean(lastDetectedCheckItem.isVariant);
 
+  // Controllo duplicati in Posseduti
   const ownedMatch = appData.items.find(i =>
     i.set === 'Posseduti' &&
     (
@@ -392,6 +338,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     )
   );
 
+  // Controllo presenza in Acquisti
   const acquistiMatch = appData.items.find(i =>
     i.set === 'Acquisti' &&
     (
@@ -404,7 +351,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     if (resultBox) resultBox.className = 'checker-result-box red-signal';
     if (signalIcon) signalIcon.textContent = '❌';
     if (titleElem) titleElem.textContent = `GIÀ POSSEDUTO (#${ownedMatch.number || '1'})`;
-    if (descElem) descElem.textContent = `"${ownedMatch.title}" è già in collezione.`;
+    if (descElem) descElem.textContent = `"${ownedMatch.title}" è già presente nella tua collezione.`;
 
     if (fastAddBtn) fastAddBtn.style.display = 'none';
     if (editDetailsBtn) editDetailsBtn.style.display = 'none';
@@ -415,7 +362,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '📋';
     if (titleElem) titleElem.textContent = `IN ACQUISTI (#${acquistiMatch.number || '1'})`;
-    if (descElem) descElem.textContent = `"${acquistiMatch.title}" è da comprare.`;
+    if (descElem) descElem.textContent = `"${acquistiMatch.title}" è nella lista da comprare.`;
 
     if (fastAddBtn) {
       fastAddBtn.style.display = 'inline-flex';
@@ -435,7 +382,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '✨';
     if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title} #${lastDetectedCheckItem.number}`;
-    if (descElem) descElem.textContent = `Trovato! Pronto per ${targetSet}.`;
+    if (descElem) descElem.textContent = `Trovato online! Salva in ${targetSet}.`;
 
     if (fastAddBtn) {
       fastAddBtn.style.display = 'inline-flex';
@@ -446,11 +393,10 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
     }
     if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
   } else {
-    // Non trovato online: apre direttamente il box compilazione senza ammassare
     if (resultBox) resultBox.className = 'checker-result-box idle';
     if (signalIcon) signalIcon.textContent = '✏️';
     if (titleElem) titleElem.textContent = `ISBN: ${cleanIsbn}`;
-    if (descElem) descElem.textContent = `Non censito online. Inserisci il titolo:`;
+    if (descElem) descElem.textContent = `Titolo non trovato online. Inseriscilo manualmente:`;
 
     if (detailsPanel) detailsPanel.style.display = 'flex';
     if (editDetailsBtn) editDetailsBtn.style.display = 'none';
