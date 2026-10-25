@@ -27,7 +27,9 @@ import {
   getDateStatus,
   getMonthYearTitle,
   getScoreBadgeClass,
-  calculateMissingGaps
+  calculateMissingGaps,
+  cleanVolumeNumber,
+  formatDisplayTitle
 } from './ui.js';
 
 // Registrazione PWA
@@ -48,11 +50,9 @@ function generateUniqueId() {
   return Math.floor(Math.random() * 1900000000) + 1;
 }
 
-// ----------------------------------------------------
 // STATO APPLICAZIONE LOCALE
-// ----------------------------------------------------
 const DEFAULT_DATA = {
-  categories: ['Generale', 'Manga', 'Comics', 'Libri', 'Videogiochi'],
+  categories: ['Generale', 'Manga', 'Comics', 'Libri', 'Film', 'Serie TV', 'Videogiochi'],
   items: []
 };
 
@@ -108,7 +108,6 @@ let searchSeriesQuery = '';
 let deletedItemBuffer = null;
 let undoTimeoutId = null;
 let currentActiveSeries = null;
-let inlineHtml5Scanner = null;
 
 const historyUndoStack = [];
 const historyRedoStack = [];
@@ -246,7 +245,7 @@ async function ensureItemInVoti(title, category) {
   }
 }
 
-// Elementi DOM Principali
+// ELEMENTI DOM PRINCIPALI
 const contentList = document.getElementById('contentList');
 const categoryFilter = document.getElementById('categoryFilter');
 const setTabs = document.getElementById('setTabs');
@@ -308,6 +307,7 @@ const modalBackdrop = document.getElementById('modalBackdrop');
 const itemForm = document.getElementById('itemForm');
 const modalTitle = document.getElementById('modalTitle');
 const editItemId = document.getElementById('editItemId');
+const formDeleteBtn = document.getElementById('formDeleteBtn');
 
 const itemTitle = document.getElementById('itemTitle');
 const targetSet = document.getElementById('targetSet');
@@ -315,6 +315,8 @@ const purchasesFields = document.getElementById('purchasesFields');
 const dateGroupWrapper = document.getElementById('dateGroupWrapper');
 const itemDate = document.getElementById('itemDate');
 const itemNumber = document.getElementById('itemNumber');
+const itemNumberLabel = document.getElementById('itemNumberLabel');
+const variantGroupWrapper = document.getElementById('variantGroupWrapper');
 const itemVariantCheckbox = document.getElementById('itemVariantCheckbox');
 const completedGroupWrapper = document.getElementById('completedGroupWrapper');
 const itemCompletedCheckbox = document.getElementById('itemCompletedCheckbox');
@@ -324,8 +326,6 @@ const itemScoreInput = document.getElementById('itemScoreInput');
 const itemUnplayedCheckbox = document.getElementById('itemUnplayedCheckbox');
 
 const categorySelect = document.getElementById('categorySelect');
-const newCategoryGroup = document.getElementById('newCategoryGroup');
-const newCategoryInput = document.getElementById('newCategoryInput');
 const existingTitlesList = document.getElementById('existingTitlesList');
 
 // Modale Form Batch
@@ -341,18 +341,17 @@ const batchTargetSet = document.getElementById('batchTargetSet');
 const batchCategorySelect = document.getElementById('batchCategorySelect');
 const existingTitlesListBatch = document.getElementById('existingTitlesListBatch');
 
-// Modale Scanner Rapido 1-Tap & Pulsante Mobile Centrale
+// Modale Scanner Rapido
 const mobileCenterScanBtn = document.getElementById('mobileCenterScanBtn');
-const openCheckerScanBtn = document.getElementById('openCheckerScanBtn');
 const closeCheckerModalBtn = document.getElementById('closeCheckerModalBtn');
 const checkerEditDetailsBtn = document.getElementById('checkerEditDetailsBtn');
 const checkerManualDetailsPanel = document.getElementById('checkerManualDetailsPanel');
+const scannerVariantGroupWrapper = document.getElementById('scannerVariantGroupWrapper');
 
 // Scanner Form Singolo
 const startScanBtn = document.getElementById('startScanBtn');
 const scannerContainer = document.getElementById('scannerContainer');
 const closeScannerBtn = document.getElementById('closeScannerBtn');
-const scannerStatus = document.getElementById('scannerStatus');
 
 // Modale Statistiche
 const openStatsBtn = document.getElementById('openStatsBtn');
@@ -400,6 +399,29 @@ const triggerImportBtn = document.getElementById('triggerImportBtn');
 const importJsonFileInput = document.getElementById('importJsonFileInput');
 const cancelResetBtn = document.getElementById('cancelResetBtn');
 const confirmFactoryResetBtn = document.getElementById('confirmFactoryResetBtn');
+
+// GESTIONE CONTESTUALE CATEGORIA E VARIANT
+function updateFormCategoryContext(category) {
+  const isComicOrManga = /manga|comic|fumett/i.test(category);
+  const isMediaOrMovie = /film|serie|videogioc/i.test(category);
+
+  if (variantGroupWrapper) {
+    variantGroupWrapper.style.display = isComicOrManga ? 'block' : 'none';
+    if (!isComicOrManga && itemVariantCheckbox) {
+      itemVariantCheckbox.checked = false;
+    }
+  }
+
+  if (itemNumberLabel && itemNumber) {
+    if (isMediaOrMovie) {
+      itemNumberLabel.textContent = 'Edizione / Formato';
+      itemNumber.placeholder = 'es. 4K, DVD o N se singolo';
+    } else {
+      itemNumberLabel.textContent = 'Numero / Vol.';
+      itemNumber.placeholder = 'Es. 1 (o N se volume unico)';
+    }
+  }
+}
 
 function updateCategoryDropdown() {
   const previous = activeCategory;
@@ -534,7 +556,7 @@ function matchesActiveFilter(item) {
     const [ty, tm, td] = todayStr.split('-').map(Number);
     const today = new Date(ty, tm - 1, td);
 
-    const [iy, im, id] = item.date.split('-').map(Number);
+    const [iy, im, id] = dateStr.split('-').map(Number);
     const itemDateObj = new Date(iy, im - 1, id);
 
     if (activeTimeFilter === 'today') return item.date === todayStr;
@@ -560,8 +582,9 @@ function matchesActiveFilter(item) {
     if (activeTimeFilter === 'unplayed') return item.unplayed === true;
     if (activeTimeFilter === 'scored') return item.unplayed !== true && item.rating !== null && item.rating !== undefined;
   } else if (activeSet === 'Liste') {
-    if (activeTimeFilter === 'hasnum') return Boolean(item.number);
-    if (activeTimeFilter === 'nonum') return !item.number;
+    const hasNum = cleanVolumeNumber(item.number) !== '';
+    if (activeTimeFilter === 'hasnum') return hasNum;
+    if (activeTimeFilter === 'nonum') return !hasNum;
   }
 
   return true;
@@ -579,8 +602,8 @@ function sortItems(itemsArray) {
         const scoreB = (b.unplayed ? -1 : (b.rating || 0));
         return scoreB - scoreA;
       } else {
-        const numA = parseInt(a.number, 10) || 0;
-        const numB = parseInt(b.number, 10) || 0;
+        const numA = parseInt(cleanVolumeNumber(a.number), 10) || 0;
+        const numB = parseInt(cleanVolumeNumber(b.number), 10) || 0;
         return numA - numB;
       }
     } else {
@@ -690,11 +713,8 @@ function renderPurchasesLayout(items) {
   });
 }
 
-// ----------------------------------------------------
-// LAYOUT AGGREGATO POSSEDUTI (CON RANGE REALE DI TUTTI I VOLUMI)
-// ----------------------------------------------------
 function formatVolumeSequence(numbersArray) {
-  if (numbersArray.length === 0) return 'Nessuno';
+  if (numbersArray.length === 0) return 'Volume Singolo';
   const nums = [...numbersArray].sort((a, b) => a - b);
 
   if (nums.length === 1) return `#${nums[0]}`;
@@ -738,16 +758,18 @@ function renderPossedutiAggregatedLayout(items) {
     const regularVols = vols.filter(v => !v.isVariant);
     const variantVols = vols.filter(v => v.isVariant);
 
-    regularVols.sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0));
+    regularVols.sort((a, b) => (parseInt(cleanVolumeNumber(a.number), 10) || 0) - (parseInt(cleanVolumeNumber(b.number), 10) || 0));
 
     const highestVolItem = regularVols.length > 0 ? regularVols[regularVols.length - 1] : vols[0];
     const missingGaps = calculateMissingGaps(regularVols);
 
     const validNumbers = [...new Set(
       regularVols
-        .map(v => parseInt(v.number, 10))
-        .filter(n => !isNaN(n))
+        .map(v => parseInt(cleanVolumeNumber(v.number), 10))
+        .filter(n => !isNaN(n) && n > 0)
     )].sort((a, b) => a - b);
+
+    const maxNumClean = cleanVolumeNumber(highestVolItem.number);
 
     aggregatedSeriesList.push({
       representativeItem: highestVolItem,
@@ -756,7 +778,7 @@ function renderPossedutiAggregatedLayout(items) {
       regularCount: regularVols.length,
       variantCount: variantVols.length,
       missingGaps: missingGaps,
-      maxNumber: highestVolItem.number || '1',
+      maxNumber: maxNumClean,
       ownedNumbers: validNumbers,
       formattedSequence: formatVolumeSequence(validNumbers)
     });
@@ -774,9 +796,6 @@ function renderPossedutiAggregatedLayout(items) {
   });
 }
 
-// ----------------------------------------------------
-// CARD POSSEDUTI: MOSTRA TUTTI I VOLUMI + TASTO RAPIDO (+1)
-// ----------------------------------------------------
 function createPossedutiAggregatedCard(series) {
   const item = series.representativeItem;
   const card = document.createElement('div');
@@ -804,6 +823,8 @@ function createPossedutiAggregatedCard(series) {
     ? `· Cap. <span class="reading-pill-highlight">${escapeHtml(item.readingChapter)}</span>` 
     : '';
 
+  const displayNumHtml = series.maxNumber ? `<span class="item-num">#${escapeHtml(series.maxNumber)}</span>` : '';
+
   card.innerHTML = `
     <div class="card-left-section">
       <div class="item-main-details">
@@ -823,19 +844,30 @@ function createPossedutiAggregatedCard(series) {
 
     <div class="card-right-section">
       ${gapBadgeHtml}
-      <button type="button" class="quick-plus-btn" title="Aggiungi rapidamente il volume successivo">+1</button>
-      <span class="item-num">#${escapeHtml(series.maxNumber)}</span>
+      ${series.maxNumber ? `<button type="button" class="quick-plus-btn" title="Aggiungi rapidamente il volume successivo">+1</button>` : ''}
+      ${displayNumHtml}
+      <button type="button" class="icon-btn delete-card-btn" title="Elimina volume o serie" aria-label="Elimina" style="color: var(--danger-color); margin-left: 6px;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      </button>
     </div>
   `;
 
-  // Tasto rapido +1: crea istantaneamente il volume successivo
   const plusBtn = card.querySelector('.quick-plus-btn');
-  plusBtn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    await createDirectNextOwnedVolume(series);
-  });
+  if (plusBtn) {
+    plusBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await createDirectNextOwnedVolume(series);
+    });
+  }
 
-  // Tocco su tutta la card: apre la scheda rapida
+  const delBtn = card.querySelector('.delete-card-btn');
+  if (delBtn) {
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleDeletePossedutiPrompt(series);
+    });
+  }
+
   card.addEventListener('click', () => {
     openQuickActionSheet(series);
   });
@@ -843,7 +875,6 @@ function createPossedutiAggregatedCard(series) {
   return card;
 }
 
-// Creazione istantanea del volume successivo per Posseduti (+1)
 async function createDirectNextOwnedVolume(series) {
   const currentMax = parseInt(series.maxNumber, 10);
   const nextNumber = isNaN(currentMax) ? 1 : currentMax + 1;
@@ -879,9 +910,6 @@ async function createDirectNextOwnedVolume(series) {
   showToastNotice(`Aggiunto "${newItem.title} #${nextNumber}" a Posseduti!`);
 }
 
-// ----------------------------------------------------
-// CARD ACQUISTI, VOTI E LISTE
-// ----------------------------------------------------
 function createItemCard(item, isCompact, medalIcon = null) {
   const card = document.createElement('div');
   card.dataset.id = item.id;
@@ -889,6 +917,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
   const catColor = getCategoryColor(item.category || 'Generale');
   const dateInfo = getDateStatus(item.date);
 
+  const cleanNum = cleanVolumeNumber(item.number);
   const isVariant = Boolean(item.isVariant || (item.number && String(item.number).toLowerCase().includes('variant')));
   const foilClass = isVariant ? 'foil-hologram' : '';
 
@@ -918,13 +947,13 @@ function createItemCard(item, isCompact, medalIcon = null) {
   }
 
   let plusNextHtml = '';
-  if (item.set === 'Acquisti' && item.number && !isNaN(parseInt(item.number, 10)) && !item.completed) {
+  if (item.set === 'Acquisti' && cleanNum && !isNaN(parseInt(cleanNum, 10)) && !item.completed) {
     plusNextHtml = `<button type="button" class="quick-plus-btn" title="Aggiungi il volume successivo">+1</button>`;
   }
 
   let mainValueHtml = '';
-  if (item.number) {
-    mainValueHtml = `<span class="item-num">#${escapeHtml(item.number)}</span>`;
+  if (cleanNum) {
+    mainValueHtml = `<span class="item-num">#${escapeHtml(cleanNum)}</span>`;
   }
 
   if (item.set === 'Voti') {
@@ -964,6 +993,9 @@ function createItemCard(item, isCompact, medalIcon = null) {
       ${dateBadgeHtml}
       ${plusNextHtml}
       ${mainValueHtml}
+      <button type="button" class="icon-btn delete-card-btn" title="Elimina volume" aria-label="Elimina volume" style="color: var(--danger-color); margin-left: 6px;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      </button>
     </div>
   `;
 
@@ -990,7 +1022,7 @@ function createItemCard(item, isCompact, medalIcon = null) {
     if (plusBtn) {
       plusBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const nextNum = (parseInt(item.number, 10) || 0) + 1;
+        const nextNum = (parseInt(cleanNum, 10) || 0) + 1;
         const newItem = {
           id: generateUniqueId(),
           title: item.title,
@@ -1020,17 +1052,27 @@ function createItemCard(item, isCompact, medalIcon = null) {
     }
   }
 
+  // Tasto elimina rapido integrato sulla card
+  const delBtn = card.querySelector('.delete-card-btn');
+  if (delBtn) {
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const displayTitle = formatDisplayTitle(item);
+      if (confirm(`Vuoi davvero eliminare "${displayTitle}"?`)) {
+        deleteItemWithUndo(item);
+      }
+    });
+  }
+
   card.addEventListener('click', (e) => {
-    if (e.target.closest('.check-btn') || e.target.closest('.quick-plus-btn')) return;
+    if (e.target.closest('.check-btn') || e.target.closest('.quick-plus-btn') || e.target.closest('.delete-card-btn')) return;
     openEditModal(item);
   });
 
   return card;
 }
 
-// ----------------------------------------------------
-// GESTIONE ACTION SHEET RAPIDA 1-TAP (POSSEDUTI)
-// ----------------------------------------------------
+// ACTION SHEET RAPIDA (POSSEDUTI)
 function openQuickActionSheet(series) {
   currentActiveSeries = series;
   const item = series.representativeItem;
@@ -1039,7 +1081,7 @@ function openQuickActionSheet(series) {
   quickSheetCategoryTag.textContent = item.category || 'Generale';
   quickSheetCategoryTag.style.color = getCategoryColor(item.category || 'Generale');
 
-  quickVolValue.textContent = `#${series.maxNumber}`;
+  quickVolValue.textContent = series.maxNumber ? `#${series.maxNumber}` : 'Singolo';
   quickChapValue.textContent = item.readingChapter || '0';
   quickReadBtnText.textContent = item.isRead ? 'Segna da Leggere' : 'Segna come Letto';
 
@@ -1063,7 +1105,8 @@ if (quickVolPlusBtn) {
     if (!currentActiveSeries) return;
     const item = currentActiveSeries.representativeItem;
     await updateVolumeStep(item.id, 1);
-    quickVolValue.textContent = `#${item.number}`;
+    const updatedClean = cleanVolumeNumber(item.number);
+    quickVolValue.textContent = updatedClean ? `#${updatedClean}` : 'Singolo';
   });
 }
 
@@ -1072,7 +1115,8 @@ if (quickVolMinusBtn) {
     if (!currentActiveSeries) return;
     const item = currentActiveSeries.representativeItem;
     await updateVolumeStep(item.id, -1);
-    quickVolValue.textContent = `#${item.number}`;
+    const updatedClean = cleanVolumeNumber(item.number);
+    quickVolValue.textContent = updatedClean ? `#${updatedClean}` : 'Singolo';
   });
 }
 
@@ -1144,7 +1188,7 @@ async function handleDeletePossedutiPrompt(series) {
 
   const choice = prompt(
     `Gestione eliminazione per "${title}":\n` +
-    `1. Elimina SOLO l'ultimo volume (#${series.maxNumber})\n` +
+    `1. Elimina SOLO l'ultimo volume (${series.maxNumber ? '#' + series.maxNumber : 'Singolo'})\n` +
     `2. Elimina TUTTI i ${count} volumi della serie\n\n` +
     `Digita 1 o 2 (oppure Annulla):`
   );
@@ -1187,6 +1231,7 @@ function renderStandardLayout(items) {
 
 function syncPurchasedWithPosseduti(purchasedItem) {
   const itemCategory = purchasedItem.category || 'Generale';
+  const cleanNum = cleanVolumeNumber(purchasedItem.number);
 
   const newItem = {
     id: generateUniqueId(),
@@ -1194,7 +1239,7 @@ function syncPurchasedWithPosseduti(purchasedItem) {
     set: 'Posseduti',
     category: itemCategory,
     date: null,
-    number: purchasedItem.number || '1',
+    number: cleanNum,
     isbn: purchasedItem.isbn || null,
     rating: null,
     unplayed: false,
@@ -1216,19 +1261,20 @@ function syncPurchasedWithPosseduti(purchasedItem) {
     ensureItemInVoti(newItem.title, newItem.category);
   }
 
-  showToastNotice(`"${purchasedItem.title}" aggiunto in Posseduti (Vol. #${purchasedItem.number || '1'})`);
+  showToastNotice(`"${purchasedItem.title}" aggiunto in Posseduti ${cleanNum ? '(Vol. #' + cleanNum + ')' : ''}`);
   saveData();
 }
 
 function rollbackPurchasedFromPosseduti(uncheckItem) {
   const titleClean = uncheckItem.title.trim().toLowerCase();
   const itemCategory = uncheckItem.category || 'Generale';
+  const cleanNum = cleanVolumeNumber(uncheckItem.number);
 
   const existingPosseduto = appData.items.find(
     i => i.set === 'Posseduti' && 
          i.title.trim().toLowerCase() === titleClean &&
          (i.category || 'Generale') === itemCategory &&
-         String(i.number || '') === String(uncheckItem.number || '')
+         cleanVolumeNumber(i.number) === cleanNum
   );
 
   if (existingPosseduto) {
@@ -1270,7 +1316,7 @@ async function updateVolumeStep(itemId, delta) {
   if (!item) return;
 
   const prev = { ...item };
-  const currentNum = parseInt(item.number || '0', 10);
+  const currentNum = parseInt(cleanVolumeNumber(item.number) || '0', 10);
   const nextNum = Math.max(1, (isNaN(currentNum) ? 0 : currentNum) + delta);
 
   item.number = String(nextNum);
@@ -1311,10 +1357,10 @@ function checkAndTriggerTodayNotifications() {
 
   if (todayReleases.length > 0) {
     const titleText = todayReleases.length === 1 
-      ? `In uscita oggi: ${todayReleases[0].title} ${todayReleases[0].number ? '#' + todayReleases[0].number : ''}`
+      ? `In uscita oggi: ${todayReleases[0].title} ${cleanVolumeNumber(todayReleases[0].number) ? '#' + cleanVolumeNumber(todayReleases[0].number) : ''}`
       : `Oggi ci sono ${todayReleases.length} uscite in fumetteria!`;
 
-    const bodyText = todayReleases.map(i => `${i.title} ${i.number ? '#' + i.number : ''}`).join(', ');
+    const bodyText = todayReleases.map(i => `${i.title} ${cleanVolumeNumber(i.number) ? '#' + cleanVolumeNumber(i.number) : ''}`).join(', ');
 
     try {
       new Notification(titleText, {
@@ -1366,9 +1412,7 @@ function showToastNotice(message) {
   }, 4500);
 }
 
-// ----------------------------------------------------
 // SCAFFALE COSTE 3D
-// ----------------------------------------------------
 function openMangaShelf3D(seriesTitle, category) {
   shelfSeriesTitle.textContent = seriesTitle;
   shelfCategoryTag.textContent = category || 'Generale';
@@ -1386,7 +1430,7 @@ function openMangaShelf3D(seriesTitle, category) {
 
   const ownedNumbersMap = new Map();
   regularVols.forEach(it => {
-    const n = parseInt(it.number, 10);
+    const n = parseInt(cleanVolumeNumber(it.number), 10);
     if (!isNaN(n)) ownedNumbersMap.set(n, it);
   });
 
@@ -1505,9 +1549,7 @@ if (shelfModalBackdrop) {
   });
 }
 
-// ----------------------------------------------------
 // SCANNER RAPIDO CONTINUO
-// ----------------------------------------------------
 function handleFastScanAction(actionType, payload) {
   const targetSetSelect = document.getElementById('scannerTargetSetPreset');
   const targetSet = targetSetSelect ? targetSetSelect.value : 'Posseduti';
@@ -1525,13 +1567,14 @@ function handleFastScanAction(actionType, payload) {
     syncItemToSupabase(payload, saveData);
     syncPurchasedWithPosseduti(payload);
     renderList();
-    showToastNotice(`"${payload.title} #${payload.number}" acquistato e spostato in Posseduti!`);
+    showToastNotice(`"${payload.title}" acquistato e spostato in Posseduti!`);
     resetCheckerPreview();
   } else if (actionType === 'ADD_NEW') {
     const finalTitle = (customTitle && customTitle.value.trim()) ? customTitle.value.trim() : payload.title;
-    const finalVol = (customVol && customVol.value.trim()) ? customVol.value.trim() : payload.number;
+    const finalVol = (customVol && customVol.value.trim()) ? cleanVolumeNumber(customVol.value.trim()) : cleanVolumeNumber(payload.number);
     const finalCat = (customCat && customCat.value) ? customCat.value : payload.category;
-    const finalVariant = customVariant ? customVariant.checked : Boolean(payload.isVariant);
+    const isComicOrManga = /manga|comic|fumett/i.test(finalCat);
+    const finalVariant = (isComicOrManga && customVariant) ? customVariant.checked : Boolean(payload.isVariant);
 
     const newItem = {
       id: generateUniqueId(),
@@ -1539,7 +1582,7 @@ function handleFastScanAction(actionType, payload) {
       set: targetSet,
       category: finalCat || 'Generale',
       date: null,
-      number: finalVol || '1',
+      number: finalVol,
       isbn: payload.isbn || null,
       rating: null,
       unplayed: false,
@@ -1563,7 +1606,7 @@ function handleFastScanAction(actionType, payload) {
     }
 
     renderList();
-    showToastNotice(`"${newItem.title} #${newItem.number}" aggiunto a ${targetSet}!`);
+    showToastNotice(`"${newItem.title}" aggiunto a ${targetSet}!`);
     resetCheckerPreview();
   }
 }
@@ -1578,6 +1621,13 @@ function populateScannerCategories() {
     opt.textContent = cat;
     customCat.appendChild(opt);
   });
+
+  customCat.addEventListener('change', (e) => {
+    const isComicOrManga = /manga|comic|fumett/i.test(e.target.value);
+    if (scannerVariantGroupWrapper) {
+      scannerVariantGroupWrapper.style.display = isComicOrManga ? 'flex' : 'none';
+    }
+  });
 }
 
 function triggerFastScanner() {
@@ -1589,9 +1639,7 @@ function triggerFastScanner() {
   openCheckerModal(appData, activeCategory, handleFastScanAction);
 }
 
-// Collegamento tasti scanner (Centrale mobile + Top desktop)
 if (mobileCenterScanBtn) mobileCenterScanBtn.addEventListener('click', triggerFastScanner);
-if (openCheckerScanBtn) openCheckerScanBtn.addEventListener('click', triggerFastScanner);
 if (closeCheckerModalBtn) closeCheckerModalBtn.addEventListener('click', stopCheckerModal);
 
 if (checkerEditDetailsBtn && checkerManualDetailsPanel) {
@@ -1602,7 +1650,8 @@ if (checkerEditDetailsBtn && checkerManualDetailsPanel) {
   });
 }
 
-function deleteItemWithUndo(item) {
+// FUNZIONE UNIVERSALE ELIMINA CON SUPPORTO UNDO
+export function deleteItemWithUndo(item) {
   pushHistoryAction({ type: 'DELETE', data: { ...item } });
   deletedItemBuffer = { ...item };
   appData.items = appData.items.filter(i => i.id !== item.id);
@@ -1635,15 +1684,32 @@ if (undoBtn) {
   });
 }
 
-function populateFormCategories() {
-  categorySelect.innerHTML = '';
-  appData.categories.forEach(cat => {
-    const opt = document.createElement('option');
-    opt.value = cat;
-    opt.textContent = cat;
-    categorySelect.appendChild(opt);
-  });
+function populateFormCategories(selectedCategory = 'Manga') {
+  categorySelect.innerHTML = appData.categories
+    .map(c => `<option value="${escapeHtml(c)}" ${c === selectedCategory ? 'selected' : ''}>${escapeHtml(c)}</option>`)
+    .join('') + `<option value="__NEW_CATEGORY__">+ Nuova categoria...</option>`;
 }
+
+categorySelect.addEventListener('change', (e) => {
+  if (e.target.value === '__NEW_CATEGORY__') {
+    const newCat = prompt('Nome della nuova categoria:');
+    if (newCat && newCat.trim()) {
+      const cleanName = newCat.trim();
+      if (!appData.categories.includes(cleanName)) {
+        appData.categories.push(cleanName);
+        syncCategoriesToSupabase(appData.categories);
+      }
+      populateFormCategories(cleanName);
+      updateCategoryDropdown();
+      updateFormCategoryContext(cleanName);
+    } else {
+      populateFormCategories(appData.categories[0]);
+      updateFormCategoryContext(appData.categories[0]);
+    }
+    return;
+  }
+  updateFormCategoryContext(e.target.value);
+});
 
 function updateAutoCompletionList() {
   const uniqueTitles = [...new Set(appData.items.map(i => i.title))];
@@ -1683,6 +1749,7 @@ itemTitle.addEventListener('input', (e) => {
   const matched = appData.items.find(i => i.title.toLowerCase() === val.trim().toLowerCase());
   if (matched && matched.category) {
     categorySelect.value = matched.category;
+    updateFormCategoryContext(matched.category);
   }
 
   const numberMatch = val.match(/^(.*?)\s+#?(\d+)$/);
@@ -1699,18 +1766,20 @@ function openCreateModalWithTitle(initialTitle) {
   modalTitle.textContent = 'Nuovo Elemento';
   editItemId.value = '';
   itemForm.reset();
+  formDeleteBtn.style.display = 'none';
+
   itemScoreInput.disabled = false;
   itemScoreInput.placeholder = 'es. 85';
   if (itemVariantCheckbox) itemVariantCheckbox.checked = false;
   if (itemReadCheckbox) itemReadCheckbox.checked = false;
 
-  populateFormCategories();
+  const defaultCat = (activeCategory !== 'Tutte') ? activeCategory : (appData.categories[0] || 'Manga');
+  populateFormCategories(defaultCat);
   updateAutoCompletionList();
+  updateFormCategoryContext(defaultCat);
 
-  newCategoryGroup.style.display = 'flex';
   targetSet.value = activeSet;
   adjustModalFields(activeSet);
-  categorySelect.value = (activeCategory !== 'Tutte') ? activeCategory : 'Generale';
 
   if (initialTitle) itemTitle.value = initialTitle;
 
@@ -1721,18 +1790,18 @@ function openCreateModalWithTitle(initialTitle) {
 function openEditModal(item) {
   modalTitle.textContent = 'Modifica Elemento';
   editItemId.value = item.id;
-  populateFormCategories();
-  updateAutoCompletionList();
+  formDeleteBtn.style.display = 'inline-flex';
 
-  newCategoryGroup.style.display = 'none';
-  newCategoryInput.value = '';
+  populateFormCategories(item.category || 'Generale');
+  updateAutoCompletionList();
+  updateFormCategoryContext(item.category || 'Generale');
 
   itemTitle.value = item.title;
   targetSet.value = item.set;
   adjustModalFields(item.set);
 
   itemDate.value = item.date || '';
-  itemNumber.value = item.number || '';
+  itemNumber.value = cleanVolumeNumber(item.number);
   itemCompletedCheckbox.checked = Boolean(item.completed);
   if (itemReadCheckbox) itemReadCheckbox.checked = Boolean(item.isRead);
   if (itemVariantCheckbox) itemVariantCheckbox.checked = Boolean(item.isVariant);
@@ -1748,8 +1817,23 @@ function openEditModal(item) {
     itemScoreInput.placeholder = 'es. 85';
   }
 
-  categorySelect.value = item.category || 'Generale';
   modalBackdrop.classList.add('active');
+}
+
+// Tasto Elimina dentro il modale
+if (formDeleteBtn) {
+  formDeleteBtn.addEventListener('click', () => {
+    const idToEdit = editItemId.value;
+    if (!idToEdit) return;
+
+    const item = appData.items.find(i => i.id == idToEdit);
+    if (!item) return;
+
+    if (confirm(`Vuoi davvero eliminare definitivamente "${formatDisplayTitle(item)}"?`)) {
+      closeModal();
+      deleteItemWithUndo(item);
+    }
+  });
 }
 
 function closeModal() {
@@ -1772,27 +1856,21 @@ itemForm.addEventListener('submit', (e) => {
   const idToEdit = editItemId.value;
   let title = itemTitle.value.trim();
   const set = targetSet.value;
-  const typedCat = newCategoryInput.value.trim();
   let category = categorySelect.value;
-  const isVariantChecked = itemVariantCheckbox ? itemVariantCheckbox.checked : false;
+  const isComicOrManga = /manga|comic|fumett/i.test(category);
+  const isVariantChecked = isComicOrManga && itemVariantCheckbox ? itemVariantCheckbox.checked : false;
   const isReadChecked = itemReadCheckbox ? itemReadCheckbox.checked : false;
 
+  const rawNum = itemNumber.value.trim();
   const numInTitleMatch = title.match(/^(.*?)\s+#?(\d+)$/);
-  if (numInTitleMatch && itemNumber.value === numInTitleMatch[2] && (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste')) {
+  if (numInTitleMatch && rawNum === numInTitleMatch[2] && (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste')) {
     title = numInTitleMatch[1];
   }
 
-  const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (itemNumber.value.trim() || null) : null;
+  // Normalizza il numero: 'N', 'n', 'u' o vuoto diventano null
+  const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (cleanVolumeNumber(rawNum) || null) : null;
 
-  if (!idToEdit && typedCat) {
-    category = typedCat;
-    if (!appData.categories.includes(category)) {
-      appData.categories.push(category);
-      syncCategoriesToSupabase(appData.categories);
-    }
-  }
-
-  if (!category) category = 'Generale';
+  if (!category || category === '__NEW_CATEGORY__') category = 'Generale';
 
   const date = (set === 'Acquisti') ? (itemDate.value || null) : null;
   const completed = (set === 'Acquisti' || set === 'Posseduti') ? itemCompletedCheckbox.checked : false;
@@ -1878,7 +1956,7 @@ itemForm.addEventListener('submit', (e) => {
   renderList();
 });
 
-// Modale Batch (Blocco Volumi)
+// MODALE BATCH
 function openBatchModal() {
   batchItemForm.reset();
   batchStartVol.value = 1;
@@ -1976,7 +2054,7 @@ if (batchItemForm) {
   });
 }
 
-// Storico Modale
+// STORICO AGGIUNTE
 function openFullHistoryModal() {
   const modal = document.getElementById('fullHistoryModalBackdrop');
   const listElem = document.getElementById('fullHistoryModalList');
@@ -1986,11 +2064,12 @@ function openFullHistoryModal() {
 
   listElem.innerHTML = '';
   sortedAll.forEach(it => {
+    const numClean = cleanVolumeNumber(it.number);
     const d = document.createElement('div');
     d.style.cssText = 'padding: 8px 12px; background: var(--bg-item-inner); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--border-card); display: flex; justify-content: space-between; align-items: center;';
     d.innerHTML = `
       <div>
-        <strong style="color: #fff;">${escapeHtml(it.title)} ${it.number ? '#' + it.number : ''}</strong>
+        <strong style="color: #fff;">${escapeHtml(it.title)} ${numClean ? '#' + numClean : ''}</strong>
         <span style="font-size: 0.74rem; color: var(--text-dim); margin-left: 6px;">[${escapeHtml(it.set)}]</span>
       </div>
       <span style="font-size: 0.7rem; color: var(--accent-cyan);">${it.createdAt ? new Date(it.createdAt).toLocaleDateString('it-IT') : ''}</span>
@@ -2013,7 +2092,7 @@ if (closeFullHistoryModalBtn && fullHistoryModalBackdrop) {
   });
 }
 
-// Statistiche
+// STATISTICHE
 if (openStatsBtn) {
   openStatsBtn.addEventListener('click', () => {
     const allItems = appData.items;
@@ -2098,7 +2177,7 @@ if (statsModalBackdrop) {
   });
 }
 
-// Impostazioni
+// IMPOSTAZIONI
 function showSettingsView(viewName) {
   settingsMainView.style.display = (viewName === 'main') ? 'block' : 'none';
   settingsAccountView.style.display = (viewName === 'account') ? 'block' : 'none';
@@ -2246,7 +2325,7 @@ addCatManageBtn.addEventListener('click', () => {
   renderList();
 });
 
-// Esporta JSON
+// ESPORTA JSON
 confirmExportBtn.addEventListener('click', () => {
   const selectedSets = [];
   if (exportAcquisti.checked) selectedSets.push('Acquisti');
@@ -2267,7 +2346,7 @@ confirmExportBtn.addEventListener('click', () => {
       targetSet: item.set,
       category: item.category || 'Generale',
       date: item.date || null,
-      number: item.number || null,
+      number: cleanVolumeNumber(item.number) || null,
       isbn: item.isbn || null,
       completed: Boolean(item.completed),
       isRead: Boolean(item.isRead),
@@ -2304,7 +2383,7 @@ confirmExportBtn.addEventListener('click', () => {
   closeSettingsModal();
 });
 
-// Importazione JSON
+// IMPORTA JSON
 triggerImportBtn.addEventListener('click', () => {
   importJsonFileInput.click();
 });
@@ -2347,14 +2426,16 @@ importJsonFileInput.addEventListener('change', (e) => {
         const target = incoming.targetSet || incoming.set || incoming.section || 'Acquisti';
         const category = (incoming.category || 'Generale').toString().trim();
         
-        const incomingNumber = incoming.number !== undefined && incoming.number !== null 
+        const rawIncNum = incoming.number !== undefined && incoming.number !== null 
           ? String(incoming.number).trim() 
           : (incoming.volume !== undefined && incoming.volume !== null ? String(incoming.volume).trim() : null);
+
+        const incomingNumber = cleanVolumeNumber(rawIncNum) || null;
 
         const incomingIsVariant = Boolean(
           incoming.isVariant || 
           incoming.is_variant || 
-          (incomingNumber && incomingNumber.toLowerCase().includes('variant'))
+          (rawIncNum && rawIncNum.toLowerCase().includes('variant'))
         );
 
         if (!appData.categories.includes(category)) {
@@ -2439,7 +2520,7 @@ importJsonFileInput.addEventListener('change', (e) => {
   reader.readAsText(file);
 });
 
-// Reset di Fabbrica
+// RESET
 cancelResetBtn.addEventListener('click', () => {
   showSettingsView('main');
 });
@@ -2474,7 +2555,7 @@ confirmFactoryResetBtn.addEventListener('click', async () => {
   alert('Dati ripristinati allo stato iniziale sia in locale che su Supabase.');
 });
 
-// Tastiera
+// SCORCIATOIE DA TASTIERA
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     if (e.key === 'z' || e.key === 'Z') {
@@ -2529,7 +2610,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Auth & Supabase Realtime
+// AUTH & REALTIME
 const authOverlay = document.getElementById('authOverlay');
 const appContent = document.getElementById('appContent');
 const accountUserEmail = document.getElementById('accountUserEmail');
