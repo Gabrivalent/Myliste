@@ -69,10 +69,29 @@ export function getScoreBadgeClass(rating) {
   return 'score-low';
 }
 
+// Calcolo pulito del numero: se vuoto, N, o non numerico valido, restituisce null
+export function cleanVolumeNumber(rawNum) {
+  if (!rawNum) return '';
+  const trimmed = String(rawNum).trim();
+  if (/^(n|none|u|unico|-)$/i.test(trimmed)) {
+    return '';
+  }
+  return trimmed;
+}
+
+// Formatta il titolo per la visualizzazione: se è volume unico, omette #1 o #N
+export function formatDisplayTitle(item) {
+  const num = cleanVolumeNumber(item.number);
+  if (!num) {
+    return item.title;
+  }
+  return `${item.title} #${num}`;
+}
+
 export function calculateMissingGaps(volumesArray) {
   const nums = volumesArray
     .filter(v => !v.isVariant)
-    .map(v => parseInt(v.number, 10))
+    .map(v => parseInt(cleanVolumeNumber(v.number), 10))
     .filter(n => !isNaN(n) && n > 0);
 
   if (nums.length < 2) return [];
