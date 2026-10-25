@@ -544,6 +544,45 @@
   align-items: center;
   cursor: pointer;
 }
+
+/* Tasto Cestino Minimalista e Moderno */
+.delete-card-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim, #71717a);
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+  opacity: 0.5;
+  margin-left: 6px;
+}
+
+.item-card:hover .delete-card-btn {
+  opacity: 1;
+}
+
+.delete-card-btn:hover {
+  color: #ef4444;
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+.delete-card-btn:active {
+  transform: scale(0.92);
+}
+
+/* Su touch / mobile: visibile e facile da toccare */
+@media (max-width: 768px) {
+  .delete-card-btn {
+    opacity: 0.85;
+    padding: 8px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
 .accordion-title { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; font-weight: 600; }
 .chevron-icon { transition: transform 0.2s ease; }
 .chevron-icon.open { transform: rotate(180deg); }
