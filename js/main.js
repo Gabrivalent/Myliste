@@ -18,7 +18,9 @@ import {
   resetCheckerPreview,
   searchIsbnData,
   escapeHtml,
-  lastDetectedCheckItem
+  lastDetectedCheckItem,
+  getLastScanCategory,
+  setLastScanCategory
 } from './scanner.js';
 
 import {
@@ -1582,6 +1584,10 @@ function handleFastScanAction(actionType, payload) {
     const finalTitle = (customTitle && customTitle.value.trim()) ? customTitle.value.trim() : payload.title;
     const finalVol = (customVol && customVol.value.trim()) ? cleanVolumeNumber(customVol.value.trim()) : cleanVolumeNumber(payload.number);
     const finalCat = (customCat && customCat.value) ? customCat.value : payload.category;
+
+    // Memorizza la categoria scelta per le scansioni successive
+    setLastScanCategory(finalCat);
+
     const isComicOrManga = /manga|comic|fumett/i.test(finalCat);
     const finalVariant = (isComicOrManga && customVariant) ? customVariant.checked : Boolean(payload.isVariant);
 
@@ -1624,17 +1630,27 @@ function populateScannerCategories() {
   const customCat = document.getElementById('scannerCustomCat');
   if (!customCat) return;
   customCat.innerHTML = '';
+  
+  const rememberedCategory = getLastScanCategory(activeCategory !== 'Tutte' ? activeCategory : 'Manga');
+
   appData.categories.forEach(cat => {
     const opt = document.createElement('option');
     opt.value = cat;
     opt.textContent = cat;
+    if (cat === rememberedCategory) opt.selected = true;
     customCat.appendChild(opt);
   });
 
+  const isComicOrManga = /manga|comic|fumett/i.test(customCat.value);
+  if (scannerVariantGroupWrapper) {
+    scannerVariantGroupWrapper.style.display = isComicOrManga ? 'flex' : 'none';
+  }
+
   customCat.addEventListener('change', (e) => {
-    const isComicOrManga = /manga|comic|fumett/i.test(e.target.value);
+    setLastScanCategory(e.target.value);
+    const isManga = /manga|comic|fumett/i.test(e.target.value);
     if (scannerVariantGroupWrapper) {
-      scannerVariantGroupWrapper.style.display = isComicOrManga ? 'flex' : 'none';
+      scannerVariantGroupWrapper.style.display = isManga ? 'flex' : 'none';
     }
   });
 }
@@ -1693,9 +1709,10 @@ if (undoBtn) {
   });
 }
 
-function populateFormCategories(selectedCategory = 'Manga') {
+function populateFormCategories(selectedCategory = null) {
+  const chosenCat = selectedCategory || getLastScanCategory('Manga');
   categorySelect.innerHTML = appData.categories
-    .map(c => `<option value="${escapeHtml(c)}" ${c === selectedCategory ? 'selected' : ''}>${escapeHtml(c)}</option>`)
+    .map(c => `<option value="${escapeHtml(c)}" ${c === chosenCat ? 'selected' : ''}>${escapeHtml(c)}</option>`)
     .join('') + `<option value="__NEW_CATEGORY__">+ Nuova categoria...</option>`;
 }
 
@@ -1708,6 +1725,7 @@ categorySelect.addEventListener('change', (e) => {
         appData.categories.push(cleanName);
         syncCategoriesToSupabase(appData.categories);
       }
+      setLastScanCategory(cleanName);
       populateFormCategories(cleanName);
       updateCategoryDropdown();
       updateFormCategoryContext(cleanName);
@@ -1717,6 +1735,7 @@ categorySelect.addEventListener('change', (e) => {
     }
     return;
   }
+  setLastScanCategory(e.target.value);
   updateFormCategoryContext(e.target.value);
 });
 
@@ -1782,7 +1801,7 @@ function openCreateModalWithTitle(initialTitle) {
   if (itemVariantCheckbox) itemVariantCheckbox.checked = false;
   if (itemReadCheckbox) itemReadCheckbox.checked = false;
 
-  const defaultCat = (activeCategory !== 'Tutte') ? activeCategory : (appData.categories[0] || 'Manga');
+  const defaultCat = getLastScanCategory((activeCategory !== 'Tutte') ? activeCategory : (appData.categories[0] || 'Manga'));
   populateFormCategories(defaultCat);
   updateAutoCompletionList();
   updateFormCategoryContext(defaultCat);
@@ -1866,6 +1885,10 @@ itemForm.addEventListener('submit', (e) => {
   let title = itemTitle.value.trim();
   const set = targetSet.value;
   let category = categorySelect.value;
+
+  if (!category || category === '__NEW_CATEGORY__') category = 'Generale';
+  setLastScanCategory(category);
+
   const isComicOrManga = /manga|comic|fumett/i.test(category);
   const isVariantChecked = isComicOrManga && itemVariantCheckbox ? itemVariantCheckbox.checked : false;
   const isReadChecked = itemReadCheckbox ? itemReadCheckbox.checked : false;
@@ -1876,10 +1899,7 @@ itemForm.addEventListener('submit', (e) => {
     title = numInTitleMatch[1];
   }
 
-  // Normalizza il numero: 'N', 'n', 'u' o vuoto diventano null
   const number = (set === 'Acquisti' || set === 'Posseduti' || set === 'Liste') ? (cleanVolumeNumber(rawNum) || null) : null;
-
-  if (!category || category === '__NEW_CATEGORY__') category = 'Generale';
 
   const date = (set === 'Acquisti') ? (itemDate.value || null) : null;
   const completed = (set === 'Acquisti' || set === 'Posseduti') ? itemCompletedCheckbox.checked : false;
@@ -1972,12 +1992,13 @@ function openBatchModal() {
   batchEndVol.value = 10;
   batchTargetSet.value = (activeSet === 'Posseduti' || activeSet === 'Acquisti') ? activeSet : 'Posseduti';
 
+  const defaultCat = getLastScanCategory(activeCategory !== 'Tutte' ? activeCategory : 'Manga');
   batchCategorySelect.innerHTML = '';
   appData.categories.forEach(cat => {
     const opt = document.createElement('option');
     opt.value = cat;
     opt.textContent = cat;
-    if (cat === activeCategory && activeCategory !== 'Tutte') opt.selected = true;
+    if (cat === defaultCat) opt.selected = true;
     batchCategorySelect.appendChild(opt);
   });
 
@@ -2017,6 +2038,7 @@ if (batchItemForm) {
     const end = parseInt(batchEndVol.value, 10);
     const set = batchTargetSet.value;
     const cat = batchCategorySelect.value || 'Generale';
+    setLastScanCategory(cat);
 
     if (!title) return;
     if (isNaN(start) || isNaN(end) || start > end) {
