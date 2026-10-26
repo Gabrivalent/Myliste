@@ -5,7 +5,19 @@ export let lastDetectedCheckItem = null;
 let isScanThrottled = false;
 let lastDecodedCode = null;
 
+// Endpoint Cloudflare Worker
 const WORKER_ENDPOINT = "https://weathered-salad-0133.valentegabriele00.workers.dev/";
+
+// Memorizzazione categoria persistente per le scansioni
+export function getLastScanCategory(fallback = 'Manga') {
+  return localStorage.getItem('last_scan_category') || fallback;
+}
+
+export function setLastScanCategory(category) {
+  if (category) {
+    localStorage.setItem('last_scan_category', category);
+  }
+}
 
 export function escapeHtml(str) {
   if (!str) return '';
@@ -30,7 +42,6 @@ export function cleanAndExtractIsbn(rawBarcode) {
 export function cleanVolumeNumber(rawNum) {
   if (!rawNum) return '';
   const trimmed = String(rawNum).trim();
-  // Se l'utente scrive 'N', 'n', 'None', o 'U' (Volume Unico), restituisce stringa vuota
   if (/^(n|none|u|unico|-)$/i.test(trimmed)) {
     return '';
   }
@@ -94,8 +105,10 @@ async function fetchWithTimeout(url, timeoutMs = 3500) {
 
 export async function searchIsbnData(rawIsbn) {
   const cleanIsbn = cleanAndExtractIsbn(rawIsbn);
+  const rememberedCategory = getLastScanCategory('Manga');
+
   if (!cleanIsbn) {
-    return { title: '', volume: '', category: 'Manga', isVariant: false, isbn: '', found: false };
+    return { title: '', volume: '', category: rememberedCategory, isVariant: false, isbn: '', found: false };
   }
 
   try {
@@ -109,7 +122,7 @@ export async function searchIsbnData(rawIsbn) {
         return {
           title: parsed.title,
           volume: parsed.volume,
-          category: 'Manga',
+          category: rememberedCategory,
           isVariant: parsed.isVariant,
           isbn: cleanIsbn,
           found: true
@@ -123,7 +136,7 @@ export async function searchIsbnData(rawIsbn) {
   return {
     title: '',
     volume: '',
-    category: 'Manga',
+    category: rememberedCategory,
     isVariant: false,
     isbn: cleanIsbn,
     found: false
@@ -245,11 +258,14 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
 
   const searchResult = await searchIsbnData(cleanIsbn);
 
+  // La categoria di default è l'ultima usata in precedenza
+  const defaultCategory = getLastScanCategory(activeCategory !== 'Tutte' ? activeCategory : 'Manga');
+
   lastDetectedCheckItem = {
     isbn: cleanIsbn,
     title: searchResult.title || '',
     number: cleanVolumeNumber(searchResult.volume),
-    category: searchResult.category || (activeCategory !== 'Tutte' ? activeCategory : 'Manga'),
+    category: defaultCategory,
     isVariant: searchResult.isVariant
   };
 
@@ -257,13 +273,25 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
   const customVol = document.getElementById('scannerCustomVol');
   const customCat = document.getElementById('scannerCustomCat');
   const customVariant = document.getElementById('scannerCustomVariant');
+  const scannerVariantWrapper = document.getElementById('scannerVariantGroupWrapper');
 
   if (customTitle) customTitle.value = lastDetectedCheckItem.title;
   if (customVol) customVol.value = lastDetectedCheckItem.number;
-  if (customCat) customCat.value = lastDetectedCheckItem.category;
+  if (customCat) {
+    customCat.value = defaultCategory;
+    // Ascolta il cambio per memorizzarlo come default
+    customCat.onchange = (e) => {
+      setLastScanCategory(e.target.value);
+      const isManga = /manga|comic|fumett/i.test(e.target.value);
+      if (scannerVariantWrapper) scannerVariantWrapper.style.display = isManga ? 'flex' : 'none';
+    };
+  }
   if (customVariant) customVariant.checked = Boolean(lastDetectedCheckItem.isVariant);
 
-  const displayNum = lastDetectedCheckItem.number ? ` #${lastDetectedCheckItem.number}` : '';
+  const isComicOrManga = /manga|comic|fumett/i.test(defaultCategory);
+  if (scannerVariantWrapper) {
+    scannerVariantWrapper.style.display = isComicOrManga ? 'flex' : 'none';
+  }
 
   const ownedMatch = appData.items.find(i =>
     i.set === 'Posseduti' &&
@@ -290,6 +318,7 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
 
     if (fastAddBtn) fastAddBtn.style.display = 'none';
     if (editDetailsBtn) editDetailsBtn.style.display = 'none';
+    if (detailsPanel) detailsPanel.style.display = 'none';
     return;
   }
 
@@ -307,18 +336,25 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
         if (onFastAddCallback) onFastAddCallback('BUY_EXISTING', acquistiMatch);
       };
     }
-    if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
+    if (editDetailsBtn) editDetailsBtn.style.display = 'none';
+    if (detailsPanel) detailsPanel.style.display = 'none';
     return;
   }
 
   const targetSetSelect = document.getElementById('scannerTargetSetPreset');
   const targetSet = targetSetSelect ? targetSetSelect.value : 'Posseduti';
 
+  // In entrambi i casi (riconosciuto o non riconosciuto) mostriamo il pannello
+  // con la categoria sempre selezionabile e impostata sulla precedente
+  if (detailsPanel) detailsPanel.style.display = 'flex';
+  if (editDetailsBtn) editDetailsBtn.style.display = 'none';
+
   if (searchResult.found) {
+    const displayNum = lastDetectedCheckItem.number ? ` #${lastDetectedCheckItem.number}` : '';
     if (resultBox) resultBox.className = 'checker-result-box green-signal';
     if (signalIcon) signalIcon.textContent = '✨';
     if (titleElem) titleElem.textContent = `${lastDetectedCheckItem.title}${displayNum}`;
-    if (descElem) descElem.textContent = `Trovato! Pronto per ${targetSet}.`;
+    if (descElem) descElem.textContent = `Verifica la categoria e premi per aggiungere a ${targetSet}:`;
 
     if (fastAddBtn) {
       fastAddBtn.style.display = 'inline-flex';
@@ -327,15 +363,11 @@ async function handleBarcodeScanned(cleanIsbn, appData, activeCategory, onFastAd
         if (onFastAddCallback) onFastAddCallback('ADD_NEW', lastDetectedCheckItem);
       };
     }
-    if (editDetailsBtn) editDetailsBtn.style.display = 'inline-flex';
   } else {
     if (resultBox) resultBox.className = 'checker-result-box idle';
     if (signalIcon) signalIcon.textContent = '✏️';
     if (titleElem) titleElem.textContent = `ISBN: ${cleanIsbn}`;
     if (descElem) descElem.textContent = `Non censito online. Inserisci il titolo:`;
-
-    if (detailsPanel) detailsPanel.style.display = 'flex';
-    if (editDetailsBtn) editDetailsBtn.style.display = 'none';
 
     if (fastAddBtn) {
       fastAddBtn.style.display = 'inline-flex';
