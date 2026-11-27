@@ -1241,4 +1241,4 @@ async function handleFactoryReset() {
   callbacks.initApp();
   alert('Dati ripristinati allo stato iniziale sia in locale che su Supabase.');
 }
-```[cite: 1, 2, 3, 5, 6, 7, 8, 9, 10, 11]
+
