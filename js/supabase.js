@@ -9,6 +9,71 @@ export let supabaseClient = null;
 export let realtimeChannel = null;
 export let currentUser = null;
 
+const SYNC_QUEUE_KEY = 'kolekt_sync_queue';
+
+export function getSyncQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY)) || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function saveSyncQueue(queue) {
+  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
+}
+
+export function enqueueSyncAction(actionType, data) {
+  const queue = getSyncQueue();
+  queue.push({
+    actionType,
+    data,
+    queuedAt: new Date().toISOString()
+  });
+  saveSyncQueue(queue);
+}
+
+export async function flushSyncQueue() {
+  if (!supabaseClient || !currentUser || !navigator.onLine) return;
+  const queue = getSyncQueue();
+  if (queue.length === 0) return;
+
+  const remainingQueue = [];
+
+  for (const item of queue) {
+    try {
+      if (item.actionType === 'ITEM_UPSERT') {
+        const payload = createPayloadFromItem(item.data);
+        const { error } = await supabaseClient.from('items').upsert(payload);
+        if (error) throw error;
+      } else if (item.actionType === 'ITEM_DELETE') {
+        const numericId = parseInt(item.data, 10);
+        if (!isNaN(numericId) && numericId > 0) {
+          const { error } = await supabaseClient.from('items').delete().eq('id', numericId);
+          if (error) throw error;
+        }
+      } else if (item.actionType === 'BATCH_UPSERT') {
+        const payload = item.data.map(createPayloadFromItem);
+        const { error } = await supabaseClient.from('items').upsert(payload);
+        if (error) throw error;
+      } else if (item.actionType === 'CATEGORIES_UPSERT') {
+        const payload = item.data.map(c => ({ id: c, name: c }));
+        const { error } = await supabaseClient.from('categories').upsert(payload);
+        if (error) throw error;
+      }
+    } catch (err) {
+      remainingQueue.push(item);
+    }
+  }
+
+  saveSyncQueue(remainingQueue);
+  if (remainingQueue.length === 0) {
+    setCloudStatus('online');
+  } else {
+    setCloudStatus('error');
+  }
+}
+
 export function setCloudStatus(status) {
   const cloudStatusDot = document.getElementById('cloudStatusDot');
   if (!cloudStatusDot) return;
@@ -18,7 +83,7 @@ export function setCloudStatus(status) {
     cloudStatusDot.title = 'Sincronizzazione Cloud Realtime attiva';
   } else if (status === 'error') {
     cloudStatusDot.classList.add('error');
-    cloudStatusDot.title = 'Errore di connessione a Supabase';
+    cloudStatusDot.title = 'Errore connessione Supabase (modifiche in coda locale)';
   } else {
     cloudStatusDot.title = 'In attesa di autenticazione';
   }
@@ -66,7 +131,6 @@ export function createPayloadFromItem(item) {
   };
 
   const numericId = parseInt(item.id, 10);
-  // Se l'id è reale e già confermato dal database, lo passiamo per l'aggiornamento
   if (!isNaN(numericId) && numericId > 0 && !item._isTempId) {
     payload.id = numericId;
   }
@@ -75,11 +139,13 @@ export function createPayloadFromItem(item) {
 }
 
 export async function syncItemToSupabase(item, onSaveCallback) {
-  if (!supabaseClient || !currentUser) return;
+  if (!supabaseClient || !currentUser) {
+    enqueueSyncAction('ITEM_UPSERT', item);
+    return;
+  }
 
   try {
     const payload = createPayloadFromItem(item);
-
     const { data, error } = await supabaseClient
       .from('items')
       .upsert(payload)
@@ -88,20 +154,23 @@ export async function syncItemToSupabase(item, onSaveCallback) {
     if (error) throw error;
 
     if (data && data[0] && data[0].id) {
-      const serverId = Number(data[0].id);
-      item.id = serverId;
+      item.id = Number(data[0].id);
       delete item._isTempId;
       if (onSaveCallback) onSaveCallback();
     }
     setCloudStatus('online');
   } catch (err) {
-    console.error(`Errore sync item #${item.id}:`, err);
+    console.error(`Offline o errore sync item #${item.id}, salvato in coda locale:`, err);
+    enqueueSyncAction('ITEM_UPSERT', item);
     setCloudStatus('error');
   }
 }
 
 export async function syncBatchItemsToSupabase(itemsArray) {
-  if (!supabaseClient || !currentUser || itemsArray.length === 0) return;
+  if (!supabaseClient || !currentUser || itemsArray.length === 0) {
+    if (itemsArray.length > 0) enqueueSyncAction('BATCH_UPSERT', itemsArray);
+    return;
+  }
 
   try {
     const payload = itemsArray.map(createPayloadFromItem);
@@ -114,16 +183,19 @@ export async function syncBatchItemsToSupabase(itemsArray) {
         delete itemsArray[idx]._isTempId;
       });
     }
-
     setCloudStatus('online');
   } catch (err) {
-    console.error('Errore sync batch items:', err);
+    console.error('Offline o errore batch items, salvati in coda locale:', err);
+    enqueueSyncAction('BATCH_UPSERT', itemsArray);
     setCloudStatus('error');
   }
 }
 
 export async function deleteItemFromSupabase(id) {
-  if (!supabaseClient || !currentUser) return;
+  if (!supabaseClient || !currentUser) {
+    enqueueSyncAction('ITEM_DELETE', id);
+    return;
+  }
 
   try {
     const numericId = parseInt(id, 10);
@@ -133,13 +205,17 @@ export async function deleteItemFromSupabase(id) {
     if (error) throw error;
     setCloudStatus('online');
   } catch (err) {
-    console.error(`Errore eliminazione item #${id}:`, err);
+    console.error(`Offline o errore eliminazione #${id}, salvata in coda locale:`, err);
+    enqueueSyncAction('ITEM_DELETE', id);
     setCloudStatus('error');
   }
 }
 
 export async function syncCategoriesToSupabase(categories) {
-  if (!supabaseClient || !currentUser) return;
+  if (!supabaseClient || !currentUser) {
+    enqueueSyncAction('CATEGORIES_UPSERT', categories);
+    return;
+  }
 
   try {
     const payload = categories.map(c => ({ id: c, name: c }));
@@ -147,7 +223,8 @@ export async function syncCategoriesToSupabase(categories) {
     if (error) throw error;
     setCloudStatus('online');
   } catch (err) {
-    console.error('Errore sync categorie:', err);
+    console.error('Offline o errore categorie, salvate in coda locale:', err);
+    enqueueSyncAction('CATEGORIES_UPSERT', categories);
     setCloudStatus('error');
   }
 }
