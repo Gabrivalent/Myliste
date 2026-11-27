@@ -566,9 +566,11 @@ function matchesActiveFilter(item) {
     const todayStr = getTodayString();
     const [ty, tm, td] = todayStr.split('-').map(Number);
     const today = new Date(ty, tm - 1, td);
+    today.setHours(0, 0, 0, 0);
 
-    const [iy, im, id] = dateStr.split('-').map(Number);
+    const [iy, im, id] = item.date.split('-').map(Number);
     const itemDateObj = new Date(iy, im - 1, id);
+    itemDateObj.setHours(0, 0, 0, 0);
 
     if (activeTimeFilter === 'today') return item.date === todayStr;
     if (activeTimeFilter === 'month') return item.date.slice(0, 7) === todayStr.slice(0, 7);
@@ -1585,7 +1587,6 @@ function handleFastScanAction(actionType, payload) {
     const finalVol = (customVol && customVol.value.trim()) ? cleanVolumeNumber(customVol.value.trim()) : cleanVolumeNumber(payload.number);
     const finalCat = (customCat && customCat.value) ? customCat.value : payload.category;
 
-    // Memorizza la categoria scelta per le scansioni successive
     setLastScanCategory(finalCat);
 
     const isComicOrManga = /manga|comic|fumett/i.test(finalCat);
