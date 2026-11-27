@@ -7,7 +7,8 @@ import {
   syncItemToSupabase,
   deleteItemFromSupabase,
   setupRealtimeSubscriptions,
-  formatRowToItem
+  formatRowToItem,
+  flushSyncQueue
 } from './supabase.js';
 
 import {
@@ -83,6 +84,12 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+
+// Svuotamento automatico della coda offline quando torna la connessione
+window.addEventListener('online', async () => {
+  await flushSyncQueue();
+  renderList();
+});
 
 // ELEMENTI DOM PRINCIPALI
 const contentList = document.getElementById('contentList');
@@ -1181,6 +1188,9 @@ async function fetchDataFromSupabase() {
     saveData();
     updateCategoryDropdown();
     renderList();
+
+    // Svuota eventuali modifiche offline rimaste pendenti
+    await flushSyncQueue();
   } catch (err) {
     console.error('Errore recupero dati Supabase:', err);
     setCloudStatus('error');
