@@ -66,7 +66,8 @@ export function createPayloadFromItem(item) {
   };
 
   const numericId = parseInt(item.id, 10);
-  if (!isNaN(numericId) && numericId > 0) {
+  // Se l'id è reale e già confermato dal database, lo passiamo per l'aggiornamento
+  if (!isNaN(numericId) && numericId > 0 && !item._isTempId) {
     payload.id = numericId;
   }
 
@@ -87,7 +88,9 @@ export async function syncItemToSupabase(item, onSaveCallback) {
     if (error) throw error;
 
     if (data && data[0] && data[0].id) {
-      item.id = Number(data[0].id);
+      const serverId = Number(data[0].id);
+      item.id = serverId;
+      delete item._isTempId;
       if (onSaveCallback) onSaveCallback();
     }
     setCloudStatus('online');
@@ -108,6 +111,7 @@ export async function syncBatchItemsToSupabase(itemsArray) {
     if (data && data.length === itemsArray.length) {
       data.forEach((row, idx) => {
         itemsArray[idx].id = Number(row.id);
+        delete itemsArray[idx]._isTempId;
       });
     }
 
