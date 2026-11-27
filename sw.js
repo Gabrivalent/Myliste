@@ -1,6 +1,6 @@
-const CACHE_NAME = 'kolekt-cache-v3';
+const CACHE_NAME = 'kolekt-cache-v4';
 
-// Elenco puntuale degli asset reali presenti nel progetto
+// Elenco puntuale degli asset dell'architettura modulare
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -12,10 +12,13 @@ const ASSETS_TO_CACHE = [
   './css/modals.css',
   './css/responsive.css',
 
-  // Moduli JS effettivi
-  './js/ui.js',
+  // Moduli JS
+  './js/state.js',
+  './js/shelf.js',
+  './js/modals.js',
   './js/supabase.js',
   './js/scanner.js',
+  './js/ui.js',
   './js/main.js'
 ];
 
@@ -45,7 +48,7 @@ self.addEventListener('activate', (event) => {
 
 // Strategia Network First con fallback su Cache
 self.addEventListener('fetch', (event) => {
-  // Ignora chiamate non GET o verso domini esterni (Supabase, Worker, CDN)
+  // Ignora chiamate non GET o verso domini esterni (Supabase, Worker Cloudflare, CDN)
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
     return;
   }
