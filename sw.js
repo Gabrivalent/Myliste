@@ -1,6 +1,6 @@
-const CACHE_NAME = 'kolekt-cache-v2';
+const CACHE_NAME = 'kolekt-cache-v3';
 
-// Elenco puntuale dei file locali dell'architettura modulare
+// Elenco puntuale degli asset reali presenti nel progetto
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -12,12 +12,10 @@ const ASSETS_TO_CACHE = [
   './css/modals.css',
   './css/responsive.css',
 
-  // Moduli JS
-  './js/config.js',
-  './js/state.js',
+  // Moduli JS effettivi
+  './js/ui.js',
   './js/supabase.js',
   './js/scanner.js',
-  './js/shelf.js',
   './js/main.js'
 ];
 
@@ -30,7 +28,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Pulizia vecchie cache precedenti (es. versione monolitica v1)
+// Pulizia vecchie cache precedenti
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -45,9 +43,9 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Strategia Network First con fallback su Cache (ottimale per collezioni e Supabase)
+// Strategia Network First con fallback su Cache
 self.addEventListener('fetch', (event) => {
-  // Ignora chiamate API/Supabase/CDN o richieste non GET
+  // Ignora chiamate non GET o verso domini esterni (Supabase, Worker, CDN)
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
     return;
   }
