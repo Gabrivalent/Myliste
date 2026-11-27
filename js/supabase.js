@@ -198,4 +198,110 @@ export async function deleteItemFromSupabase(id) {
   }
 
   try {
-    const numericId = parseInt(id, 1
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId) || numericId <= 0) return;
+
+    const { error } = await supabaseClient.from('items').delete().eq('id', numericId);
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error(`Offline o errore eliminazione #${id}, salvata in coda locale:`, err);
+    enqueueSyncAction('ITEM_DELETE', id);
+    setCloudStatus('error');
+  }
+}
+
+export async function syncCategoriesToSupabase(categories) {
+  if (!supabaseClient || !currentUser) {
+    enqueueSyncAction('CATEGORIES_UPSERT', categories);
+    return;
+  }
+
+  try {
+    const payload = categories.map(c => ({ id: c, name: c }));
+    const { error } = await supabaseClient.from('categories').upsert(payload);
+    if (error) throw error;
+    setCloudStatus('online');
+  } catch (err) {
+    console.error('Offline o errore categorie, salvate in coda locale:', err);
+    enqueueSyncAction('CATEGORIES_UPSERT', categories);
+    setCloudStatus('error');
+  }
+}
+
+let realtimeDebounceTimer = null;
+
+export function setupRealtimeSubscriptions(appData, callbacks) {
+  if (!supabaseClient || !currentUser) return;
+
+  if (realtimeChannel) {
+    supabaseClient.removeChannel(realtimeChannel);
+  }
+
+  realtimeChannel = supabaseClient
+    .channel('public:items')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'items' },
+      (payload) => {
+        const { eventType, new: newRow, old: oldRow } = payload;
+        let hasChanges = false;
+
+        if (eventType === 'INSERT') {
+          const exists = appData.items.some(i => i.id === Number(newRow.id));
+          if (!exists) {
+            appData.items.unshift(formatRowToItem(newRow));
+            hasChanges = true;
+          }
+        } else if (eventType === 'UPDATE') {
+          const idx = appData.items.findIndex(i => i.id === Number(newRow.id));
+          if (idx !== -1) {
+            appData.items[idx] = formatRowToItem(newRow);
+            hasChanges = true;
+          }
+        } else if (eventType === 'DELETE') {
+          if (oldRow && oldRow.id) {
+            appData.items = appData.items.filter(i => i.id !== Number(oldRow.id));
+            hasChanges = true;
+          }
+        }
+
+        if (hasChanges && callbacks.onDataChange) {
+          if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+          realtimeDebounceTimer = setTimeout(() => {
+            callbacks.onDataChange();
+          }, 80);
+        }
+      }
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        setCloudStatus('online');
+      }
+    });
+}
+
+export async function initAuth(callbacks) {
+  if (!window.supabase) return;
+
+  supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) {
+      currentUser = session.user;
+      callbacks.onAuthSuccess(session.user);
+    } else {
+      currentUser = null;
+      callbacks.onAuthLogout();
+    }
+  });
+
+  const { data } = await supabaseClient.auth.getSession();
+  if (data && data.session && data.session.user) {
+    currentUser = data.session.user;
+    callbacks.onAuthSuccess(data.session.user);
+  } else {
+    currentUser = null;
+    callbacks.onAuthLogout();
+  }
+}
