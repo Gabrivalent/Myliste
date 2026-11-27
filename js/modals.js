@@ -51,6 +51,141 @@ let callbacks = {
   initApp: () => {}
 };
 
+// DIALOGHI MODALI ASINCRONI CUSTOM (SOSTITUZIONE DI PROMPT E CONFIRM NATIVI)
+export function showCustomConfirm(message, confirmLabel = 'Conferma', isDanger = true) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop active';
+    backdrop.style.zIndex = '10005';
+
+    backdrop.innerHTML = `
+      <div class="modal-card" style="max-width: 380px;">
+        <div class="modal-header">
+          <h3>Conferma operazione</h3>
+          <button type="button" class="close-btn" id="customConfirmCloseBtn">&times;</button>
+        </div>
+        <p style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.5; margin: 0.5rem 0 1.25rem;">
+          ${escapeHtml(message)}
+        </p>
+        <div class="modal-actions" style="margin-top: 0;">
+          <button type="button" class="btn-secondary" id="customConfirmCancelBtn">Annulla</button>
+          <button type="button" class="${isDanger ? 'btn-danger' : 'btn-primary'}" id="customConfirmOkBtn">${confirmLabel}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+
+    const cleanup = (value) => {
+      backdrop.remove();
+      resolve(value);
+    };
+
+    backdrop.querySelector('#customConfirmOkBtn').onclick = () => cleanup(true);
+    backdrop.querySelector('#customConfirmCancelBtn').onclick = () => cleanup(false);
+    backdrop.querySelector('#customConfirmCloseBtn').onclick = () => cleanup(false);
+    backdrop.onclick = (e) => {
+      if (e.target === backdrop) cleanup(false);
+    };
+  });
+}
+
+export function showCustomPrompt(title, message, defaultValue = '', placeholder = '') {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop active';
+    backdrop.style.zIndex = '10005';
+
+    backdrop.innerHTML = `
+      <div class="modal-card" style="max-width: 380px;">
+        <div class="modal-header">
+          <h3>${escapeHtml(title)}</h3>
+          <button type="button" class="close-btn" id="customPromptCloseBtn">&times;</button>
+        </div>
+        <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.75rem;">
+          ${escapeHtml(message)}
+        </p>
+        <div class="input-group">
+          <input type="text" id="customPromptInput" value="${escapeHtml(defaultValue)}" placeholder="${escapeHtml(placeholder)}" autocomplete="off">
+        </div>
+        <div class="modal-actions" style="margin-top: 1rem;">
+          <button type="button" class="btn-secondary" id="customPromptCancelBtn">Annulla</button>
+          <button type="button" class="btn-primary" id="customPromptOkBtn">Salva</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+    const input = backdrop.querySelector('#customPromptInput');
+    input.focus();
+    input.select();
+
+    const cleanup = (value) => {
+      backdrop.remove();
+      resolve(value);
+    };
+
+    backdrop.querySelector('#customPromptOkBtn').onclick = () => cleanup(input.value.trim());
+    backdrop.querySelector('#customPromptCancelBtn').onclick = () => cleanup(null);
+    backdrop.querySelector('#customPromptCloseBtn').onclick = () => cleanup(null);
+    backdrop.onclick = (e) => {
+      if (e.target === backdrop) cleanup(null);
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') cleanup(input.value.trim());
+      if (e.key === 'Escape') cleanup(null);
+    };
+  });
+}
+
+export function showCustomSeriesDeleteDialog(seriesTitle, maxNumber, count) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop active';
+    backdrop.style.zIndex = '10005';
+
+    backdrop.innerHTML = `
+      <div class="modal-card" style="max-width: 420px;">
+        <div class="modal-header">
+          <h3>Elimina da Posseduti</h3>
+          <button type="button" class="close-btn" id="seriesDeleteCloseBtn">&times;</button>
+        </div>
+        <p style="font-size: 0.86rem; color: #cbd5e1; margin-bottom: 1.1rem; line-height: 1.4;">
+          Scegli come procedere per l'opera <strong>"${escapeHtml(seriesTitle)}"</strong>:
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+          <button type="button" class="btn-secondary" id="deleteOnlyLastBtn" style="padding: 0.75rem; text-align: left; display: flex; flex-direction: column; gap: 2px;">
+            <strong style="color: #fff;">Elimina solo l'ultimo volume</strong>
+            <span style="font-size: 0.74rem; color: #94a3b8;">Cancella solo ${maxNumber ? '#' + maxNumber : 'il volume singolo'}</span>
+          </button>
+          <button type="button" class="btn-danger" id="deleteAllSeriesBtn" style="padding: 0.75rem; text-align: left; display: flex; flex-direction: column; gap: 2px;">
+            <strong>Elimina tutti i ${count} volumi</strong>
+            <span style="font-size: 0.74rem; color: rgba(255,255,255,0.8);">Rimuove l'intera serie dalla collezione</span>
+          </button>
+        </div>
+        <div class="modal-actions" style="margin-top: 1rem;">
+          <button type="button" class="btn-secondary" id="seriesDeleteCancelBtn" style="width: 100%;">Annulla</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+
+    const cleanup = (choice) => {
+      backdrop.remove();
+      resolve(choice);
+    };
+
+    backdrop.querySelector('#deleteOnlyLastBtn').onclick = () => cleanup('LAST');
+    backdrop.querySelector('#deleteAllSeriesBtn').onclick = () => cleanup('ALL');
+    backdrop.querySelector('#seriesDeleteCancelBtn').onclick = () => cleanup(null);
+    backdrop.querySelector('#seriesDeleteCloseBtn').onclick = () => cleanup(null);
+    backdrop.onclick = (e) => {
+      if (e.target === backdrop) cleanup(null);
+    };
+  });
+}
+
 // ELEMENTI DOM
 const modalBackdrop = document.getElementById('modalBackdrop');
 const modalTitle = document.getElementById('modalTitle');
@@ -199,10 +334,10 @@ export function initModals(appCallbacks) {
   }
 
   if (categorySelect) {
-    categorySelect.addEventListener('change', (e) => {
+    categorySelect.addEventListener('change', async (e) => {
       if (e.target.value === '__NEW_CATEGORY__') {
-        const newCat = prompt('Nome della nuova categoria:');
-        if (newCat && newCat.trim()) {
+        const newCat = await showCustomPrompt('Nuova Categoria', 'Inserisci il nome della nuova categoria:', '', 'es. Seinen, Artbook...');
+        if (newCat) {
           const cleanName = newCat.trim();
           if (!appData.categories.includes(cleanName)) {
             appData.categories.push(cleanName);
@@ -224,12 +359,13 @@ export function initModals(appCallbacks) {
   }
 
   if (formDeleteBtn) {
-    formDeleteBtn.addEventListener('click', () => {
+    formDeleteBtn.addEventListener('click', async () => {
       const idToEdit = editItemId.value;
       if (!idToEdit) return;
       const item = appData.items.find(i => i.id == idToEdit);
       if (!item) return;
-      if (confirm(`Vuoi davvero eliminare definitivamente "${formatDisplayTitle(item)}"?`)) {
+      const confirmed = await showCustomConfirm(`Vuoi davvero eliminare definitivamente "${formatDisplayTitle(item)}"?`);
+      if (confirmed) {
         closeModal();
         callbacks.deleteItemWithUndo(item);
       }
@@ -677,31 +813,25 @@ export async function handleDeletePossedutiPrompt(series) {
   const count = series.allVolumes.length;
 
   if (count <= 1) {
-    if (confirm(`Vuoi eliminare definitivamente "${title}" dalla collezione?`)) {
+    const confirmed = await showCustomConfirm(`Vuoi eliminare definitivamente "${title}" dalla collezione?`);
+    if (confirmed) {
       callbacks.deleteItemWithUndo(series.representativeItem);
     }
     return;
   }
 
-  const choice = prompt(
-    `Gestione eliminazione per "${title}":\n` +
-    `1. Elimina SOLO l'ultimo volume (${series.maxNumber ? '#' + series.maxNumber : 'Singolo'})\n` +
-    `2. Elimina TUTTI i ${count} volumi della serie\n\n` +
-    `Digita 1 o 2 (oppure Annulla):`
-  );
+  const choice = await showCustomSeriesDeleteDialog(title, series.maxNumber, count);
 
-  if (choice === '1') {
+  if (choice === 'LAST') {
     callbacks.deleteItemWithUndo(series.representativeItem);
-  } else if (choice === '2') {
-    if (confirm(`Confermi di voler cancellare TUTTI i ${count} volumi di "${title}"?`)) {
-      pushHistoryAction({ type: 'DELETE', data: [...series.allVolumes] });
-      const idsToDelete = series.allVolumes.map(v => v.id);
-      appData.items = appData.items.filter(i => !idsToDelete.includes(i.id));
-      saveData();
-      for (const id of idsToDelete) await deleteItemFromSupabase(id);
-      callbacks.renderList();
-      callbacks.showToastNotice(`Cancellata l'intera serie "${title}"`);
-    }
+  } else if (choice === 'ALL') {
+    pushHistoryAction({ type: 'DELETE', data: [...series.allVolumes] });
+    const idsToDelete = series.allVolumes.map(v => v.id);
+    appData.items = appData.items.filter(i => !idsToDelete.includes(i.id));
+    saveData();
+    for (const id of idsToDelete) await deleteItemFromSupabase(id);
+    callbacks.renderList();
+    callbacks.showToastNotice(`Cancellata l'intera serie "${title}"`);
   }
 }
 
@@ -960,9 +1090,9 @@ export function renderManageCategoriesList() {
       </div>
     `;
 
-    li.querySelector('.edit-cat-btn').addEventListener('click', () => {
-      const newName = prompt(`Rinomina la categoria "${cat}" in:`, cat);
-      if (newName && newName.trim() && newName.trim() !== cat) {
+    li.querySelector('.edit-cat-btn').addEventListener('click', async () => {
+      const newName = await showCustomPrompt('Rinomina Categoria', `Inserisci il nuovo nome per "${cat}":`, cat, 'Nuovo nome...');
+      if (newName && newName !== cat) {
         const cleanName = newName.trim();
         const idx = appData.categories.indexOf(cat);
         if (idx !== -1) appData.categories[idx] = cleanName;
@@ -984,8 +1114,9 @@ export function renderManageCategoriesList() {
 
     const delBtn = li.querySelector('.delete-cat-btn');
     if (delBtn) {
-      delBtn.addEventListener('click', () => {
-        if (confirm(`Eliminare la categoria "${cat}"? I volumi associati torneranno a "Generale".`)) {
+      delBtn.addEventListener('click', async () => {
+        const confirmed = await showCustomConfirm(`Eliminare la categoria "${cat}"? I volumi associati torneranno a "Generale".`);
+        if (confirmed) {
           appData.categories = appData.categories.filter(c => c !== cat);
           appData.items.forEach(i => {
             if (i.category === cat) {
@@ -1216,6 +1347,9 @@ function handleImportJson(e) {
 }
 
 async function handleFactoryReset() {
+  const confirmed = await showCustomConfirm('Attenzione: questa operazione cancellerà permanentemente tutti gli elementi sia in locale che su Supabase. Continuare?', 'Sì, Cancella Tutto', true);
+  if (!confirmed) return;
+
   localStorage.clear();
   appData.categories = ['Generale', 'Manga', 'Comics', 'Libri', 'Film', 'Serie TV', 'Videogiochi'];
   appData.items = [];
@@ -1239,6 +1373,5 @@ async function handleFactoryReset() {
 
   closeSettingsModal();
   callbacks.initApp();
-  alert('Dati ripristinati allo stato iniziale sia in locale che su Supabase.');
+  callbacks.showToastNotice('Dati ripristinati allo stato iniziale.');
 }
-
