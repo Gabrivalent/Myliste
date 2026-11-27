@@ -37,8 +37,8 @@ export function formatRowToItem(row) {
     unplayed: Boolean(row.unplayed),
     purchased: Boolean(row.purchased),
     completed: Boolean(row.completed),
-    isRead: false,
-    isVariant: Boolean(row.is_variant || (row.number && String(row.number).toLowerCase().includes('variant'))),
+    isRead: Boolean(row.is_read || row.isRead),
+    isVariant: Boolean(row.is_variant || row.isVariant || (row.number && String(row.number).toLowerCase().includes('variant'))),
     missingGapNotice: row.missing_gap_notice,
     readingChapter: row.reading_chapter || '',
     privateComment: row.private_comment || '',
@@ -58,12 +58,13 @@ export function createPayloadFromItem(item) {
     unplayed: Boolean(item.unplayed),
     purchased: Boolean(item.purchased),
     completed: Boolean(item.completed),
+    is_read: Boolean(item.isRead),
+    is_variant: Boolean(item.isVariant),
     missing_gap_notice: item.missingGapNotice || null,
     reading_chapter: item.readingChapter || null,
     private_comment: item.privateComment || ''
   };
 
-  // Se l'elemento esiste già sul database, includiamo l'id per fare update (upsert)
   const numericId = parseInt(item.id, 10);
   if (!isNaN(numericId) && numericId > 0) {
     payload.id = numericId;
@@ -85,7 +86,6 @@ export async function syncItemToSupabase(item, onSaveCallback) {
 
     if (error) throw error;
 
-    // Supabase restituisce l'id generato/assegnato, aggiorniamo il client
     if (data && data[0] && data[0].id) {
       item.id = Number(data[0].id);
       if (onSaveCallback) onSaveCallback();
