@@ -1,5 +1,3 @@
-// js/supabase.js
-
 export const SUPABASE_CONFIG = {
   url: 'https://aiagtwiqeecaxhaaqzmx.supabase.co',
   anonKey: 'sb_publishable_PodV98vtRyuW329msfQKrA_goxv6C_c'
@@ -45,24 +43,36 @@ export async function flushSyncQueue() {
       if (item.actionType === 'ITEM_UPSERT') {
         const payload = createPayloadFromItem(item.data);
         const { error } = await supabaseClient.from('items').upsert(payload);
-        if (error) throw error;
+        if (error) {
+          console.error('Errore Supabase su ITEM_UPSERT:', error);
+          if (error.code !== 'PGRST100' && error.code !== '42703' && error.code !== '22P02') {
+            remainingQueue.push(item);
+          }
+        }
       } else if (item.actionType === 'ITEM_DELETE') {
         const numericId = parseInt(item.data, 10);
         if (!isNaN(numericId) && numericId > 0) {
           const { error } = await supabaseClient.from('items').delete().eq('id', numericId);
-          if (error) throw error;
+          if (error) {
+            console.error('Errore Supabase su ITEM_DELETE:', error);
+            remainingQueue.push(item);
+          }
         }
       } else if (item.actionType === 'BATCH_UPSERT') {
         const payload = item.data.map(createPayloadFromItem);
         const { error } = await supabaseClient.from('items').upsert(payload);
-        if (error) throw error;
+        if (error) {
+          console.error('Errore Supabase su BATCH_UPSERT:', error);
+        }
       } else if (item.actionType === 'CATEGORIES_UPSERT') {
         const payload = item.data.map(c => ({ id: c, name: c }));
         const { error } = await supabaseClient.from('categories').upsert(payload);
-        if (error) throw error;
+        if (error) {
+          console.error('Errore Supabase su CATEGORIES_UPSERT:', error);
+        }
       }
     } catch (err) {
-      remainingQueue.push(item);
+      console.error('Eccezione durante flush queue:', err);
     }
   }
 
@@ -95,16 +105,16 @@ export function formatRowToItem(row) {
     title: row.title,
     set: row.set_type,
     category: row.category,
-    date: row.date,
-    number: row.number,
+    date: row.date || null,
+    number: row.number || null,
     isbn: row.isbn || null,
-    rating: row.rating,
+    rating: (row.rating !== null && row.rating !== undefined) ? Number(row.rating) : null,
     unplayed: Boolean(row.unplayed),
     purchased: Boolean(row.purchased),
     completed: Boolean(row.completed),
     isRead: Boolean(row.is_read || row.isRead),
     isVariant: Boolean(row.is_variant || row.isVariant || (row.number && String(row.number).toLowerCase().includes('variant'))),
-    missingGapNotice: row.missing_gap_notice,
+    missingGapNotice: row.missing_gap_notice || null,
     readingChapter: row.reading_chapter || '',
     privateComment: row.private_comment || '',
     createdAt: row.created_at || new Date().toISOString()
@@ -113,25 +123,22 @@ export function formatRowToItem(row) {
 
 export function createPayloadFromItem(item) {
   const payload = {
-    title: item.title,
-    set_type: item.set,
+    title: String(item.title || 'Senza Titolo').trim(),
+    set_type: item.set || item.targetSet || 'Acquisti',
     category: item.category || 'Generale',
-    date: item.date || null,
-    number: item.number ? String(item.number) : null,
-    isbn: item.isbn ? String(item.isbn).trim() : null,
-    rating: (item.rating !== null && item.rating !== undefined && !isNaN(item.rating)) ? Number(item.rating) : null,
+    date: (item.date && String(item.date).trim()) ? String(item.date).trim() : null,
+    number: (item.number !== null && item.number !== undefined && String(item.number).trim()) ? String(item.number).trim() : null,
+    isbn: (item.isbn && String(item.isbn).trim()) ? String(item.isbn).trim() : null,
+    rating: (item.rating !== null && item.rating !== undefined && !isNaN(Number(item.rating))) ? Number(item.rating) : null,
     unplayed: Boolean(item.unplayed),
     purchased: Boolean(item.purchased),
     completed: Boolean(item.completed),
-    is_read: Boolean(item.isRead),
-    is_variant: Boolean(item.isVariant),
-    missing_gap_notice: item.missingGapNotice || null,
-    reading_chapter: item.readingChapter || null,
-    private_comment: item.privateComment || ''
+    is_read: Boolean(item.isRead || item.is_read),
+    is_variant: Boolean(item.isVariant || item.is_variant)
   };
 
   const numericId = parseInt(item.id, 10);
-  if (!isNaN(numericId) && numericId > 0 && !item._isTempId) {
+  if (!isNaN(numericId) && numericId > 0 && String(item.id).length < 10 && !item._isTempId) {
     payload.id = numericId;
   }
 
@@ -151,7 +158,10 @@ export async function syncItemToSupabase(item, onSaveCallback) {
       .upsert(payload)
       .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Dettaglio errore Supabase upsert:', error);
+      throw error;
+    }
 
     if (data && data[0] && data[0].id) {
       item.id = Number(data[0].id);
@@ -175,7 +185,10 @@ export async function syncBatchItemsToSupabase(itemsArray) {
   try {
     const payload = itemsArray.map(createPayloadFromItem);
     const { data, error } = await supabaseClient.from('items').upsert(payload).select();
-    if (error) throw error;
+    if (error) {
+      console.error('Dettaglio errore Supabase batch:', error);
+      throw error;
+    }
 
     if (data && data.length === itemsArray.length) {
       data.forEach((row, idx) => {
