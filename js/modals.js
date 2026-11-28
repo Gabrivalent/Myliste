@@ -1450,6 +1450,3 @@ async function handleFactoryReset() {
   callbacks.initApp();
   callbacks.showToastNotice('Dati ripristinati allo stato iniziale.');
 }
-```[cite: 1, 2, 3, 5]
-
-Ora quando clicchi su `+` per inserire un elemento o ne modifichi uno esistente trovi il campo **Codice ISBN** con il tasto **"Cerca Info"**: puoi digitarlo o incollarlo a mano e, premendo il tasto, compila in automatico titolo, volume e categoria usando il database online.
