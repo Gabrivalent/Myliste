@@ -26,7 +26,8 @@ import {
 import {
   getLastScanCategory,
   setLastScanCategory,
-  escapeHtml
+  escapeHtml,
+  searchIsbnData
 } from './scanner.js';
 
 import { openMangaShelf3D } from './shelf.js';
@@ -51,7 +52,7 @@ let callbacks = {
   initApp: () => {}
 };
 
-// DIALOGHI MODALI ASINCRONI CUSTOM (SOSTITUZIONE DI PROMPT E CONFIRM NATIVI)
+// DIALOGHI MODALI ASINCRONI CUSTOM
 export function showCustomConfirm(message, confirmLabel = 'Conferma', isDanger = true) {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');
@@ -213,6 +214,69 @@ const itemScoreInput = document.getElementById('itemScoreInput');
 const itemUnplayedCheckbox = document.getElementById('itemUnplayedCheckbox');
 const existingTitlesList = document.getElementById('existingTitlesList');
 
+// Riferimento o iniezione dinamica del campo ISBN nel Form
+let itemIsbnInput = document.getElementById('itemIsbn');
+let fetchIsbnBtn = document.getElementById('fetchIsbnBtn');
+
+function ensureIsbnFieldExists() {
+  if (itemIsbnInput) return;
+  itemIsbnInput = document.getElementById('itemIsbn');
+  if (itemIsbnInput) return;
+
+  const isbnGroup = document.createElement('div');
+  isbnGroup.className = 'input-group';
+  isbnGroup.id = 'isbnInputGroupWrapper';
+  isbnGroup.innerHTML = `
+    <label for="itemIsbn" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>Codice ISBN</span>
+      <span style="font-size:0.72rem; color:var(--text-dim);">Opzionale (10 o 13 cifre)</span>
+    </label>
+    <div style="display:flex; gap:6px;">
+      <input type="text" id="itemIsbn" placeholder="es. 9788891234567" style="flex:1;">
+      <button type="button" id="fetchIsbnBtn" class="btn-secondary" style="padding:0 12px; font-size:0.8rem; white-space:nowrap;" title="Cerca informazioni da ISBN">
+        Cerca Info
+      </button>
+    </div>
+  `;
+
+  if (itemTitle && itemTitle.parentElement) {
+    itemTitle.parentElement.insertAdjacentElement('afterend', isbnGroup);
+    itemIsbnInput = document.getElementById('itemIsbn');
+    fetchIsbnBtn = document.getElementById('fetchIsbnBtn');
+
+    fetchIsbnBtn.addEventListener('click', async () => {
+      const code = itemIsbnInput.value.replace(/[-\s]/g, '').trim();
+      if (!code) {
+        callbacks.showToastNotice('Inserisci un codice ISBN prima di cercare');
+        return;
+      }
+      fetchIsbnBtn.disabled = true;
+      fetchIsbnBtn.textContent = 'Ricerca...';
+      try {
+        const result = await searchIsbnData(code);
+        if (result && result.title) {
+          itemTitle.value = result.title;
+          if (result.number && !itemNumber.value) {
+            itemNumber.value = cleanVolumeNumber(result.number);
+          }
+          if (result.category && !categorySelect.value) {
+            categorySelect.value = result.category;
+            updateFormCategoryContext(result.category);
+          }
+          callbacks.showToastNotice(`Trovato: "${result.title}"`);
+        } else {
+          callbacks.showToastNotice('Nessun dato trovato per questo ISBN');
+        }
+      } catch (err) {
+        callbacks.showToastNotice('Errore durante la ricerca ISBN');
+      } finally {
+        fetchIsbnBtn.disabled = false;
+        fetchIsbnBtn.textContent = 'Cerca Info';
+      }
+    });
+  }
+}
+
 // Quick Action Sheet
 const quickActionModalBackdrop = document.getElementById('quickActionModalBackdrop');
 const closeQuickSheetBtn = document.getElementById('closeQuickSheetBtn');
@@ -290,6 +354,8 @@ const confirmFactoryResetBtn = document.getElementById('confirmFactoryResetBtn')
 
 export function initModals(appCallbacks) {
   callbacks = { ...callbacks, ...appCallbacks };
+
+  ensureIsbnFieldExists();
 
   // Form Singolo Listeners
   if (openModalBtn) openModalBtn.addEventListener('click', openCreateModal);
@@ -563,10 +629,13 @@ export function openCreateModal() {
 }
 
 export function openCreateModalWithTitle(initialTitle) {
+  ensureIsbnFieldExists();
   modalTitle.textContent = 'Nuovo Elemento';
   editItemId.value = '';
   itemForm.reset();
   formDeleteBtn.style.display = 'none';
+
+  if (itemIsbnInput) itemIsbnInput.value = '';
 
   itemScoreInput.disabled = false;
   itemScoreInput.placeholder = 'es. 85';
@@ -588,6 +657,7 @@ export function openCreateModalWithTitle(initialTitle) {
 }
 
 export function openEditModal(item) {
+  ensureIsbnFieldExists();
   modalTitle.textContent = 'Modifica Elemento';
   editItemId.value = item.id;
   formDeleteBtn.style.display = 'inline-flex';
@@ -599,6 +669,8 @@ export function openEditModal(item) {
   itemTitle.value = item.title;
   targetSet.value = item.set;
   adjustModalFields(item.set);
+
+  if (itemIsbnInput) itemIsbnInput.value = item.isbn || '';
 
   itemDate.value = item.date || '';
   itemNumber.value = cleanVolumeNumber(item.number);
@@ -624,6 +696,7 @@ export function closeModal() {
   modalBackdrop.classList.remove('active');
   itemForm.reset();
   editItemId.value = '';
+  if (itemIsbnInput) itemIsbnInput.value = '';
 }
 
 async function handleSingleItemSubmit(e) {
@@ -633,6 +706,7 @@ async function handleSingleItemSubmit(e) {
   let title = itemTitle.value.trim();
   const set = targetSet.value;
   let category = categorySelect.value;
+  const isbn = itemIsbnInput ? itemIsbnInput.value.replace(/[-\s]/g, '').trim() || null : null;
 
   if (!category || category === '__NEW_CATEGORY__') category = 'Generale';
   setLastScanCategory(category);
@@ -676,6 +750,7 @@ async function handleSingleItemSubmit(e) {
       existing.category = category;
       existing.date = date;
       existing.number = number;
+      existing.isbn = isbn;
       existing.completed = completed;
       existing.isRead = isReadChecked;
       existing.rating = rating;
@@ -692,7 +767,7 @@ async function handleSingleItemSubmit(e) {
       category,
       date,
       number,
-      isbn: null,
+      isbn,
       completed,
       isRead: isReadChecked,
       rating,
@@ -1375,3 +1450,6 @@ async function handleFactoryReset() {
   callbacks.initApp();
   callbacks.showToastNotice('Dati ripristinati allo stato iniziale.');
 }
+```[cite: 1, 2, 3, 5]
+
+Ora quando clicchi su `+` per inserire un elemento o ne modifichi uno esistente trovi il campo **Codice ISBN** con il tasto **"Cerca Info"**: puoi digitarlo o incollarlo a mano e, premendo il tasto, compila in automatico titolo, volume e categoria usando il database online.
