@@ -583,6 +583,37 @@
     min-height: 36px;
   }
 }
+
+.section-group-divider {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 6px;
+  padding: 4px 0;
+}
+
+.section-group-divider:first-child {
+  margin-top: 4px;
+}
+
+.section-group-badge {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 3px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.section-group-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-card);
+}
 .accordion-title { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; font-weight: 600; }
 .chevron-icon { transition: transform 0.2s ease; }
 .chevron-icon.open { transform: rotate(180deg); }
