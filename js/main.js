@@ -67,7 +67,6 @@ import {
   handleDeletePossedutiPrompt
 } from './modals.js';
 
-// Icona SVG Vettoriale Cestino
 const TRASH_SVG = `
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -76,7 +75,6 @@ const TRASH_SVG = `
   </svg>
 `;
 
-// Registrazione PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch((err) => {
@@ -85,13 +83,11 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Svuotamento automatico della coda offline quando torna la connessione
 window.addEventListener('online', async () => {
   await flushSyncQueue();
   renderList();
 });
 
-// ELEMENTI DOM PRINCIPALI
 const contentList = document.getElementById('contentList');
 const categoryFilter = document.getElementById('categoryFilter');
 const setTabs = document.getElementById('setTabs');
@@ -143,7 +139,6 @@ if (toggleSidebarBtn && twitchSidebar) {
   });
 }
 
-// NAVIGAZIONE E FILTRI
 export function updateCategoryDropdown() {
   const previous = state.activeCategory;
   categoryFilter.innerHTML = '<option value="Tutte">Tutte le Categorie</option>';
@@ -331,14 +326,58 @@ function sortItems(itemsArray) {
       }
     } else {
       if (!a.date && !b.date) return 0;
-      if (!a.date) return -1;
-      if (!b.date) return 1;
+      if (!a.date) return 1;
+      if (!b.date) return -1;
       return a.date.localeCompare(b.date);
     }
   });
 }
 
-// RENDERING LISTE E CARDS
+function createSectionDivider(label) {
+  const div = document.createElement('div');
+  div.className = 'section-group-divider';
+  div.innerHTML = `
+    <span class="section-group-badge">${escapeHtml(label)}</span>
+    <span class="section-group-line"></span>
+  `;
+  return div;
+}
+
+function getGroupKeyForCard(item, sortMode, setType) {
+  if (sortMode === 'name') {
+    const firstChar = (item.title || '').trim().charAt(0).toUpperCase();
+    if (/[0-9]/.test(firstChar)) return '0 - 9';
+    if (/[A-Z]/.test(firstChar)) return firstChar;
+    return '#';
+  }
+
+  if (sortMode === 'number') {
+    if (setType === 'Voti') {
+      if (item.unplayed) return 'Da Iniziare';
+      const score = item.rating || 0;
+      if (score >= 90) return '90 - 100';
+      if (score >= 80) return '80 - 89';
+      if (score >= 70) return '70 - 79';
+      if (score >= 60) return '60 - 69';
+      return 'Sotto il 60';
+    } else {
+      const num = parseInt(cleanVolumeNumber(item.number || (item.maxNumber ? item.maxNumber : '')), 10);
+      if (isNaN(num) || num <= 0) return 'Volume Singolo';
+      if (num <= 10) return 'Vol. 1 - 10';
+      if (num <= 25) return 'Vol. 11 - 25';
+      if (num <= 50) return 'Vol. 26 - 50';
+      return 'Vol. 51+';
+    }
+  }
+
+  if (sortMode === 'date') {
+    if (!item.date) return 'Senza Data';
+    return getMonthYearTitle(item.date);
+  }
+
+  return '';
+}
+
 export function renderList() {
   contentList.innerHTML = '';
   purchasedList.innerHTML = '';
@@ -397,43 +436,17 @@ function renderPurchasesLayout(items) {
     return;
   }
 
-  if (getCurrentSortMode() !== 'date') {
-    sortItems(activeItems).forEach(item => {
-      contentList.appendChild(createItemCard(item, false));
-    });
-    return;
-  }
+  const sortedActive = sortItems(activeItems);
+  const currentMode = getCurrentSortMode();
+  let currentGroup = null;
 
-  const noDateItems = activeItems.filter(i => !i.date);
-  const withDateItems = activeItems.filter(i => i.date);
-  withDateItems.sort((a, b) => a.date.localeCompare(b.date));
-
-  noDateItems.forEach(item => {
+  sortedActive.forEach(item => {
+    const groupKey = getGroupKeyForCard(item, currentMode, 'Acquisti');
+    if (groupKey && groupKey !== currentGroup) {
+      currentGroup = groupKey;
+      contentList.appendChild(createSectionDivider(currentGroup));
+    }
     contentList.appendChild(createItemCard(item, false));
-  });
-
-  const monthGroups = {};
-  withDateItems.forEach(item => {
-    const groupKey = item.date.slice(0, 7);
-    if (!monthGroups[groupKey]) monthGroups[groupKey] = [];
-    monthGroups[groupKey].push(item);
-  });
-
-  Object.keys(monthGroups).sort().forEach(groupKey => {
-    const header = document.createElement('div');
-    header.className = 'month-group-header';
-    const count = monthGroups[groupKey].length;
-    const countLabel = count === 1 ? '1 volume' : `${count} volumi`;
-
-    header.innerHTML = `
-      <span class="month-group-title">${getMonthYearTitle(monthGroups[groupKey][0].date)}</span>
-      <span class="month-count-pill">${countLabel}</span>
-    `;
-    contentList.appendChild(header);
-
-    monthGroups[groupKey].forEach(item => {
-      contentList.appendChild(createItemCard(item, false));
-    });
   });
 }
 
@@ -460,8 +473,17 @@ function renderPossedutiAggregatedLayout(items) {
     return;
   }
 
+  const currentMode = getCurrentSortMode();
+
   if (state.activeTimeFilter === 'variant') {
-    sortItems(filtered).forEach(item => {
+    const sortedVariants = sortItems(filtered);
+    let currentGroup = null;
+    sortedVariants.forEach(item => {
+      const groupKey = getGroupKeyForCard(item, currentMode, 'Posseduti');
+      if (groupKey && groupKey !== currentGroup) {
+        currentGroup = groupKey;
+        contentList.appendChild(createSectionDivider(currentGroup));
+      }
       contentList.appendChild(createItemCard(item, false));
     });
     return;
@@ -497,25 +519,33 @@ function renderPossedutiAggregatedLayout(items) {
 
     aggregatedSeriesList.push({
       representativeItem: highestVolItem,
+      title: highestVolItem.title,
+      maxNumber: maxNumClean,
       allVolumes: vols,
       regularVolumes: regularVols,
       regularCount: regularVols.length,
       variantCount: variantVols.length,
       missingGaps: missingGaps,
-      maxNumber: maxNumClean,
       ownedNumbers: validNumbers,
       formattedSequence: formatVolumeSequence(validNumbers)
     });
   });
 
   aggregatedSeriesList.sort((a, b) => {
-    if (getCurrentSortMode() === 'name') {
+    if (currentMode === 'name') {
       return a.representativeItem.title.localeCompare(b.representativeItem.title);
     }
     return (parseInt(b.maxNumber, 10) || 0) - (parseInt(a.maxNumber, 10) || 0);
   });
 
+  let currentGroup = null;
+
   aggregatedSeriesList.forEach(series => {
+    const groupKey = getGroupKeyForCard(series, currentMode, 'Posseduti');
+    if (groupKey && groupKey !== currentGroup) {
+      currentGroup = groupKey;
+      contentList.appendChild(createSectionDivider(currentGroup));
+    }
     contentList.appendChild(createPossedutiAggregatedCard(series));
   });
 }
@@ -804,8 +834,16 @@ function renderStandardLayout(items) {
   }
 
   const sorted = sortItems(filtered);
+  const currentMode = getCurrentSortMode();
+  let currentGroup = null;
 
   sorted.forEach((item, index) => {
+    const groupKey = getGroupKeyForCard(item, currentMode, state.activeSet);
+    if (groupKey && groupKey !== currentGroup) {
+      currentGroup = groupKey;
+      contentList.appendChild(createSectionDivider(currentGroup));
+    }
+
     let medal = null;
     if (state.activeSet === 'Voti' && !item.unplayed && item.rating !== null) {
       if (index === 0) medal = '🥇';
@@ -873,7 +911,6 @@ export function rollbackPurchasedFromPosseduti(uncheckItem) {
   saveData();
 }
 
-// ELIMINA CON UNDO
 export function deleteItemWithUndo(item) {
   pushHistoryAction({ type: 'DELETE', data: { ...item } });
   state.deletedItemBuffer = { ...item };
@@ -919,7 +956,6 @@ export function showToastNotice(message) {
   }, 4500);
 }
 
-// SCANNER RAPIDO CONTINUO
 function handleFastScanAction(actionType, payload) {
   const targetSetSelect = document.getElementById('scannerTargetSetPreset');
   const targetSet = targetSetSelect ? targetSetSelect.value : 'Posseduti';
@@ -1033,7 +1069,6 @@ if (checkerEditDetailsBtn && checkerManualDetailsPanel) {
   });
 }
 
-// NOTIFICHE
 function checkAndTriggerTodayNotifications() {
   if (!state.notificationsEnabled) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -1094,7 +1129,6 @@ if (notificationsToggleCheckbox) {
   });
 }
 
-// SCORCIATOIE TASTIERA
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     if (e.key === 'z' || e.key === 'Z') {
@@ -1143,7 +1177,6 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// AUTH & REALTIME
 if (moreActionsBtn && moreDropdownMenu) {
   moreActionsBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1189,7 +1222,6 @@ async function fetchDataFromSupabase() {
     updateCategoryDropdown();
     renderList();
 
-    // Svuota eventuali modifiche offline rimaste pendenti
     await flushSyncQueue();
   } catch (err) {
     console.error('Errore recupero dati Supabase:', err);
@@ -1280,7 +1312,6 @@ export function initApp() {
   renderList();
 }
 
-// INIZIALIZZAZIONE MODULI
 initShelfModule({
   onEditItem: (item) => openEditModal(item),
   onDataChanged: () => renderList(),
